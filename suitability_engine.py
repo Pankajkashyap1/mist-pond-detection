@@ -77,6 +77,44 @@ def fetch_elevation_for_polygon(polygon_coords: List[List[float]], grid_samples:
     }
 
 
+def fetch_elevation_for_bbox(min_lat: float, max_lat: float, min_lon: float, max_lon: float, grid_samples: int = 24) -> Dict:
+    """Fetch elevation grid across any lat/lon bounding box for whole-map contours."""
+    grid_lats = np.linspace(min_lat, max_lat, grid_samples)
+    grid_lons = np.linspace(min_lon, max_lon, grid_samples)
+
+    locations = [
+        {"latitude": float(lat), "longitude": float(lon)}
+        for lat in grid_lats
+        for lon in grid_lons
+    ]
+
+    try:
+        resp = requests.post(
+            "https://api.open-elevation.com/api/v1/lookup",
+            json={"locations": locations},
+            timeout=20,
+            headers={"Accept": "application/json", "Content-Type": "application/json"}
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        elevations = [r["elevation"] for r in results]
+    except Exception as e:
+        print(f"[BBox Elevation API fallback: {e}]")
+        elevations = _simulate_elevation_grid(min_lat, max_lat, min_lon, max_lon, grid_samples)
+
+    elev_array = np.array(elevations).reshape(grid_samples, grid_samples)
+    lat_grid = np.array([p["latitude"] for p in locations]).reshape(grid_samples, grid_samples)
+    lon_grid = np.array([p["longitude"] for p in locations]).reshape(grid_samples, grid_samples)
+
+    return {
+        "elevations": elev_array,
+        "lats": lat_grid,
+        "lons": lon_grid,
+        "min_lat": min_lat, "max_lat": max_lat,
+        "min_lon": min_lon, "max_lon": max_lon,
+    }
+
+
 def _simulate_elevation_grid(min_lat, max_lat, min_lon, max_lon, gs) -> List[float]:
     """Generate a plausible micro-terrain elevation grid for demo/offline use."""
     np.random.seed(int(abs(min_lat * 1000) + abs(min_lon * 1000)) % 999)

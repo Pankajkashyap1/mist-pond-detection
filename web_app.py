@@ -12,6 +12,7 @@ from flask import Flask, render_template, request, jsonify
 
 from suitability_engine import (
     fetch_elevation_for_polygon,
+    fetch_elevation_for_bbox,
     polygon_area_sqm,
     polygon_perimeter_m,
     analyze_suitability,
@@ -56,8 +57,8 @@ def analyze_polygon():
         center_lat = sum(c[0] for c in coords) / len(coords)
         center_lon = sum(c[1] for c in coords) / len(coords)
 
-        # ── Step 2: Elevation Data
-        GRID_SIZE = 16
+        # ── Step 2: Elevation Data (32x32 grid for ultra-smooth contours)
+        GRID_SIZE = 32
         elevation_data = fetch_elevation_for_polygon(coords, grid_samples=GRID_SIZE)
 
         # ── Step 3: AI Suitability Analysis
@@ -141,6 +142,41 @@ def geocode():
         resp.raise_for_status()
         return jsonify({"status": "success", "results": resp.json()})
     except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4.  MAP VIEWPORT CONTOURS (FULL SCREEN CONTOURS)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/map_contours", methods=["POST"])
+def map_contours():
+    """Fetch elevation grid for the visible map bounding box to display full-map contours."""
+    try:
+        data = request.json or {}
+        min_lat = float(data.get("min_lat"))
+        max_lat = float(data.get("max_lat"))
+        min_lon = float(data.get("min_lon"))
+        max_lon = float(data.get("max_lon"))
+
+        GRID_SIZE = 28
+        elevation_data = fetch_elevation_for_bbox(min_lat, max_lat, min_lon, max_lon, grid_samples=GRID_SIZE)
+
+        return jsonify({
+            "status": "success",
+            "elevation_grid": {
+                "grid_size": GRID_SIZE,
+                "values": elevation_data["elevations"].tolist(),
+                "lats":    elevation_data["lats"].tolist(),
+                "lons":    elevation_data["lons"].tolist(),
+                "min_lat": elevation_data["min_lat"],
+                "max_lat": elevation_data["max_lat"],
+                "min_lon": elevation_data["min_lon"],
+                "max_lon": elevation_data["max_lon"],
+            }
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

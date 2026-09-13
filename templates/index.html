@@ -123,11 +123,14 @@
                 <div id="mainMap"></div>
 
                 <!-- Contour Layer Toggle -->
-                <div class="map-controls" id="mapControls" style="display:none">
+                <div class="map-controls" id="mapControls" style="display:flex">
                     <button id="btnToggleContour" class="map-ctrl-btn active" title="Toggle contour lines">
                         <i class="fa-solid fa-circle-half-stroke"></i> Contour Lines
                     </button>
-                    <button id="btnToggleHeatDots" class="map-ctrl-btn active" title="Toggle elevation dots">
+                    <button id="btnFullMapContour" class="map-ctrl-btn" title="Generate contour lines across entire map view">
+                        <i class="fa-solid fa-earth-asia"></i> Full Map Contours
+                    </button>
+                    <button id="btnToggleHeatDots" class="map-ctrl-btn" title="Toggle elevation dots">
                         <i class="fa-solid fa-circle-dot"></i> Elevation Dots
                     </button>
                     <div class="contour-legend" id="contourLegend">

@@ -10,7 +10,7 @@ const state = {
     drawnLayer: null,
     lastResult: null,
     contoursVisible: true,
-    dotsVisible: true,
+    dotsVisible: false,
 };
 
 // ── DOM references ─────────────────────────────────────────────────────────
@@ -52,6 +52,7 @@ const DOM = {
     specsGrid:      $('specsGrid'),
     mapControls:    $('mapControls'),
     btnToggleContour: $('btnToggleContour'),
+    btnFullMapContour: $('btnFullMapContour'),
     btnToggleHeatDots: $('btnToggleHeatDots'),
 };
 
@@ -372,16 +373,16 @@ function renderSpecsGrid(g, specs) {
 // CONTOUR MAP ENGINE
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── Color scale: Blue (low) → Cyan → Green → Yellow → Orange → Red (high)
+// ── Vivid Rainbow Color Scale: Blue (low) → Cyan → Green → Yellow → Orange → Red (high)
 function elevationColor(t) {
     // t ∈ [0,1], 0=lowest, 1=highest
     const stops = [
-        [0.00, [30, 136, 229]],   // #1e88e5 deep blue
-        [0.15, [0,  172, 193]],   // #00acc1 cyan
-        [0.35, [67, 160,  71]],   // #43a047 green
-        [0.55, [253, 216,  53]],  // #fdd835 yellow
-        [0.75, [251, 140,   0]],  // #fb8c00 orange
-        [1.00, [229,  57,  53]],  // #e53935 red
+        [0.00, [43,  92,  255]],  // #2b5cff vibrant royal blue
+        [0.20, [0,   229, 255]],  // #00e5ff bright cyan
+        [0.40, [0,   255, 102]],  // #00ff66 electric green
+        [0.60, [255, 230,   0]],  // #ffe600 vibrant yellow
+        [0.80, [255, 119,   0]],  // #ff7700 orange
+        [1.00, [255,  23,  68]],  // #ff1744 crimson red
     ];
     for (let i = 1; i < stops.length; i++) {
         if (t <= stops[i][0]) {
@@ -394,7 +395,77 @@ function elevationColor(t) {
             return `rgb(${r},${g},${b})`;
         }
     }
-    return '#e53935';
+    return '#ff1744';
+}
+
+// ── Chaikin's Corner Smoothing Algorithm for smooth organic contour curves ──
+function chaikinSmooth(pts, iterations = 2) {
+    if (!pts || pts.length < 3) return pts;
+    let current = pts;
+    for (let it = 0; it < iterations; it++) {
+        const smoothed = [];
+        smoothed.push(current[0]);
+        for (let i = 0; i < current.length - 1; i++) {
+            const p0 = current[i];
+            const p1 = current[i + 1];
+            const q = [0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1]];
+            const r = [0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1]];
+            smoothed.push(q);
+            smoothed.push(r);
+        }
+        smoothed.push(current[current.length - 1]);
+        current = smoothed;
+    }
+    return current;
+}
+
+// ── Stitch segment pairs into continuous polyline chains ───────────────────
+function stitchSegments(segments) {
+    if (!segments || !segments.length) return [];
+    const chains = [];
+    const pool = [...segments];
+
+    while (pool.length > 0) {
+        let chain = pool.pop();
+        let extended = true;
+
+        while (extended) {
+            extended = false;
+            const head = chain[0];
+            const tail = chain[chain.length - 1];
+
+            for (let i = 0; i < pool.length; i++) {
+                const seg = pool[i];
+                const p0 = seg[0], p1 = seg[seg.length - 1];
+
+                // Distance threshold ~1e-5 degrees for matching endpoints
+                const eps = 1e-4;
+                if (Math.hypot(tail[0] - p0[0], tail[1] - p0[1]) < eps) {
+                    chain.push(...seg.slice(1));
+                    pool.splice(i, 1);
+                    extended = true;
+                    break;
+                } else if (Math.hypot(tail[0] - p1[0], tail[1] - p1[1]) < eps) {
+                    chain.push(...seg.reverse().slice(1));
+                    pool.splice(i, 1);
+                    extended = true;
+                    break;
+                } else if (Math.hypot(head[0] - p1[0], head[1] - p1[1]) < eps) {
+                    chain.unshift(...seg.slice(0, -1));
+                    pool.splice(i, 1);
+                    extended = true;
+                    break;
+                } else if (Math.hypot(head[0] - p0[0], head[1] - p0[1]) < eps) {
+                    chain.unshift(...seg.reverse().slice(0, -1));
+                    pool.splice(i, 1);
+                    extended = true;
+                    break;
+                }
+            }
+        }
+        chains.push(chain);
+    }
+    return chains;
 }
 
 // ── Elevation dot markers ─────────────────────────────────────────────────
@@ -410,8 +481,8 @@ function renderElevationHeatmap(heatData, stats) {
         const t = (pt.elev - minE) / range;
         const color = elevationColor(t);
         const circle = L.circleMarker([pt.lat, pt.lon], {
-            radius: 5, color: 'transparent',
-            fillColor: color, fillOpacity: 0.72, weight: 0,
+            radius: 4, color: 'transparent',
+            fillColor: color, fillOpacity: 0.65, weight: 0,
         });
         circle.bindTooltip(`${pt.elev} m ASL`, { permanent: false, opacity: .9 });
         circle.addTo(map);
@@ -444,26 +515,32 @@ function renderContourLines(grid) {
         }
     if (maxE === minE) return;
 
-    // Generate NUM_LEVELS iso-contour levels
-    const NUM_LEVELS = 10;
+    // Generate 22 iso-contour levels for rich detail
+    const NUM_LEVELS = 22;
     const levels = [];
-    for (let i = 0; i <= NUM_LEVELS; i++)
+    for (let i = 1; i < NUM_LEVELS; i++) {
         levels.push(minE + (i / NUM_LEVELS) * (maxE - minE));
+    }
 
-    // For each iso-level, run a simple marching-squares variant
+    // For each iso-level, extract segments, stitch into chains, smooth with Chaikin
     levels.forEach((threshold, li) => {
         const t = li / NUM_LEVELS;
         const color = elevationColor(t);
-        const segments = marchingSquares(values, lats, lons, rows, cols, threshold);
+        const rawSegments = marchingSquares(values, lats, lons, rows, cols, threshold);
+        const stitchedChains = stitchSegments(rawSegments);
 
-        segments.forEach(seg => {
-            const poly = L.polyline(seg, {
+        stitchedChains.forEach(chain => {
+            if (chain.length < 2) return;
+            const smoothedChain = chaikinSmooth(chain, 2);
+
+            const isMajor = li % 4 === 0;
+            const poly = L.polyline(smoothedChain, {
                 color,
-                weight: li % 3 === 0 ? 2.2 : 1.2,   // thicker every 3rd line
-                opacity: 0.82,
-                smoothFactor: 1.2,
+                weight: isMajor ? 2.5 : 1.4,   // thicker lines for major elevation steps
+                opacity: isMajor ? 0.92 : 0.80,
+                smoothFactor: 1.0,
             });
-            poly.bindTooltip(`${threshold.toFixed(1)} m`, { sticky: true, opacity: .85 });
+            poly.bindTooltip(`${threshold.toFixed(1)} m`, { sticky: true, opacity: .9 });
             poly.addTo(map);
             contourLayers.push(poly);
         });
@@ -536,13 +613,63 @@ function marchingSquares(values, lats, lons, rows, cols, threshold) {
     return segments;
 }
 
+// ── Full Map Contours (Entire Viewport) ───────────────────────────────────
+async function fetchFullMapContours() {
+    if (!state.contoursVisible) return;
+    const bounds = map.getBounds();
+    const body = {
+        min_lat: bounds.getSouth(),
+        max_lat: bounds.getNorth(),
+        min_lon: bounds.getWest(),
+        max_lon: bounds.getEast(),
+    };
+
+    DOM.mapLoading.classList.remove('hidden');
+    try {
+        const resp = await fetch('/api/map_contours', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (data.status === 'success' && data.elevation_grid) {
+            renderContourLines(data.elevation_grid);
+        }
+    } catch (err) {
+        console.error('Failed to fetch full map contours:', err);
+    } finally {
+        DOM.mapLoading.classList.add('hidden');
+    }
+}
+
+// ── Button listeners ──────────────────────────────────────────────────────
+DOM.btnFullMapContour.addEventListener('click', () => {
+    fetchFullMapContours();
+});
+
+// Refresh contours automatically when map move ends
+let moveTimeout = null;
+map.on('moveend', () => {
+    if (state.contoursVisible) {
+        clearTimeout(moveTimeout);
+        moveTimeout = setTimeout(() => fetchFullMapContours(), 600);
+    }
+});
+
+// Trigger full map contours automatically on initial load
+setTimeout(() => fetchFullMapContours(), 1000);
+
 // ── Toggle Contour Button ─────────────────────────────────────────────────
 DOM.btnToggleContour.addEventListener('click', () => {
     state.contoursVisible = !state.contoursVisible;
     DOM.btnToggleContour.classList.toggle('active', state.contoursVisible);
-    contourLayers.forEach(l => {
-        state.contoursVisible ? l.addTo(map) : map.removeLayer(l);
-    });
+    if (state.contoursVisible && contourLayers.length === 0) {
+        fetchFullMapContours();
+    } else {
+        contourLayers.forEach(l => {
+            state.contoursVisible ? l.addTo(map) : map.removeLayer(l);
+        });
+    }
 });
 
 // ── Toggle Elevation Dots Button ──────────────────────────────────────────
@@ -602,8 +729,9 @@ function renderSearchResults(results) {
         li.addEventListener('click', () => {
             const lat = parseFloat(li.dataset.lat);
             const lon = parseFloat(li.dataset.lon);
-            map.setView([lat, lon], 15);
+            map.setView([lat, lon], 14);
             DOM.searchResults.classList.add('hidden');
+            setTimeout(() => fetchFullMapContours(), 800);
         });
     });
 }
