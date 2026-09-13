@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mist Pond Detection — Draw &amp; Analyze Pond Location</title>
+    <meta name="description" content="AI-powered tool to draw a proposed pond on any map and instantly receive suitability scoring, depth recommendations, and volume calculations.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Leaflet.js -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Draw -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="dark-theme">
+
+    <!-- Ambient glow orbs -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+
+    <!-- ╔═══ TOP HEADER ═══╗ -->
+    <header class="app-header">
+        <div class="brand">
+            <div class="brand-icon"><i class="fa-solid fa-water"></i></div>
+            <div class="brand-text">
+                <h1>Mist Pond Detection</h1>
+                <p>Draw Your Proposed Pond — Get Instant AI Analysis</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <span class="status-badge live"><i class="fa-solid fa-circle-dot"></i> AI Engine Active</span>
+        </div>
+    </header>
+
+    <!-- ╔═══ MAIN LAYOUT ═══╗ -->
+    <div class="main-layout">
+
+        <!-- ─── LEFT SIDEBAR ─── -->
+        <aside class="sidebar">
+
+            <!-- Search Location -->
+            <div class="sidebar-section">
+                <h3><i class="fa-solid fa-magnifying-glass-location"></i> Find a Location</h3>
+                <div class="search-row">
+                    <input type="text" id="searchInput" placeholder="Search village, district, city…" autocomplete="off">
+                    <button id="btnSearch" class="btn btn-cyan" title="Search"><i class="fa-solid fa-search"></i></button>
+                </div>
+                <ul class="search-results hidden" id="searchResults"></ul>
+            </div>
+
+            <!-- Draw Instructions -->
+            <div class="sidebar-section draw-guide">
+                <h3><i class="fa-solid fa-pen-ruler"></i> How to Use</h3>
+                <ol class="step-list">
+                    <li><span class="step-num">1</span>Search or navigate to your target location on the map.</li>
+                    <li><span class="step-num">2</span>Click the <strong><i class="fa-solid fa-draw-polygon"></i> Polygon</strong> tool on the map and draw your proposed pond boundary.</li>
+                    <li><span class="step-num">3</span>Click the <strong>🔍 Analyze This Site</strong> button below.</li>
+                    <li><span class="step-num">4</span>View the AI suitability score, recommended depth, and volume.</li>
+                </ol>
+            </div>
+
+            <!-- Hydrology Parameters -->
+            <div class="sidebar-section">
+                <h3><i class="fa-solid fa-cloud-rain"></i> Hydrology Parameters</h3>
+
+                <div class="field-group">
+                    <div class="field-label-row">
+                        <label>Annual Rainfall (mm)</label>
+                        <span class="field-val" id="labelRainfall">1100 mm</span>
+                    </div>
+                    <input type="range" id="sliderRainfall" min="400" max="2500" step="50" value="1100">
+                    <small>Adjust to match local annual average precipitation.</small>
+                </div>
+
+                <div class="field-group">
+                    <label>Catchment Area (m²) <small>optional</small></label>
+                    <input type="number" id="inputCatchment" placeholder="Auto (8× pond area)" min="100" step="500">
+                    <small>Area that drains rainfall into this pond. Leave blank for auto-estimate.</small>
+                </div>
+            </div>
+
+            <!-- Analyze Button -->
+            <div class="sidebar-section">
+                <button id="btnAnalyze" class="btn btn-big btn-cyan" disabled>
+                    <i class="fa-solid fa-magnifying-glass-chart"></i>
+                    Analyze This Site
+                </button>
+                <button id="btnClearDraw" class="btn btn-sm btn-ghost">
+                    <i class="fa-solid fa-trash-can"></i> Clear Drawing
+                </button>
+                <div class="draw-hint" id="drawHint">
+                    <i class="fa-solid fa-info-circle"></i> Draw a polygon on the map first, then click Analyze.
+                </div>
+            </div>
+
+            <!-- Drawing Stats (updated live) -->
+            <div class="sidebar-section" id="drawStats" style="display:none">
+                <h3><i class="fa-solid fa-ruler-combined"></i> Drawn Area Stats</h3>
+                <div class="stat-row"><span>Surface Area</span><strong id="statArea">—</strong></div>
+                <div class="stat-row"><span>Perimeter</span><strong id="statPerimeter">—</strong></div>
+                <div class="stat-row"><span>Center</span><strong id="statCenter">—</strong></div>
+            </div>
+
+        </aside>
+
+        <!-- ─── MAP + RESULTS CENTER ─── -->
+        <main class="center-panel">
+
+            <!-- MAP -->
+            <div class="map-card">
+                <div id="mainMap"></div>
+                <div class="map-loading hidden" id="mapLoading">
+                    <div class="spinner"></div>
+                    <span>Fetching elevation data and running AI analysis…</span>
+                </div>
+            </div>
+
+            <!-- RESULT PANEL (hidden until analysis runs) -->
+            <div id="resultPanel" class="result-panel hidden">
+
+                <!-- Verdict Banner -->
+                <div class="verdict-banner" id="verdictBanner">
+                    <div class="verdict-icon" id="verdictIcon"></div>
+                    <div class="verdict-text">
+                        <h2 id="verdictTitle"></h2>
+                        <p id="verdictSubtitle"></p>
+                    </div>
+                    <div class="score-ring">
+                        <svg viewBox="0 0 60 60">
+                            <circle cx="30" cy="30" r="26" fill="none" stroke="#1e3a5f" stroke-width="6"/>
+                            <circle id="scoreArc" cx="30" cy="30" r="26" fill="none"
+                                    stroke-width="6" stroke-linecap="round"
+                                    stroke-dasharray="163.4"
+                                    stroke-dashoffset="163.4"
+                                    transform="rotate(-90 30 30)"/>
+                        </svg>
+                        <div class="score-num" id="scoreNum">0</div>
+                    </div>
+                </div>
+
+                <!-- 4-Column KPI Grid -->
+                <div class="kpi-grid4" id="kpiGrid">
+                    <div class="kpi-card" data-accent="blue">
+                        <div class="kpi-icon"><i class="fa-solid fa-ruler-horizontal"></i></div>
+                        <div>
+                            <span class="kpi-label">Surface Area</span>
+                            <div class="kpi-val" id="kpiArea">—</div>
+                            <span class="kpi-sub" id="kpiAreaHa">—</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card" data-accent="teal">
+                        <div class="kpi-icon"><i class="fa-solid fa-arrows-down-to-line"></i></div>
+                        <div>
+                            <span class="kpi-label">Recommended Depth</span>
+                            <div class="kpi-val" id="kpiDepth">—</div>
+                            <span class="kpi-sub" id="kpiBundHeight">—</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card" data-accent="purple">
+                        <div class="kpi-icon"><i class="fa-solid fa-droplet"></i></div>
+                        <div>
+                            <span class="kpi-label">Net Storage Volume</span>
+                            <div class="kpi-val" id="kpiVolume">—</div>
+                            <span class="kpi-sub" id="kpiVolumeLiters">—</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card" data-accent="orange">
+                        <div class="kpi-icon"><i class="fa-solid fa-tractor"></i></div>
+                        <div>
+                            <span class="kpi-label">Irrigation Potential</span>
+                            <div class="kpi-val" id="kpiIrrigation">—</div>
+                            <span class="kpi-sub">Hectares of cropland</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabs for detail sections -->
+                <div class="tabs-row">
+                    <button class="tab active" data-tab="reasons"><i class="fa-solid fa-list-check"></i> AI Analysis</button>
+                    <button class="tab" data-tab="specs"><i class="fa-solid fa-drafting-compass"></i> Pond Specs</button>
+                </div>
+
+                <!-- TAB: AI Reasons -->
+                <div class="tab-content active" id="tab-reasons">
+                    <div class="factor-grid" id="factorGrid"></div>
+                    <div class="reasons-list" id="reasonsList"></div>
+                </div>
+
+                <!-- TAB: Pond Specs -->
+                <div class="tab-content" id="tab-specs">
+                    <div class="specs-grid" id="specsGrid">
+                        <!-- populated by JS -->
+                    </div>
+                </div>
+
+
+
+            </div>
+
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.env
+.env.*
+*.log
+
+# Results / generated outputs
+results/
+static/samples/
+static/uploads/
+
+# Virtual environments
+venv/
+env/
+.venv/
