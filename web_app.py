@@ -57,7 +57,8 @@ def analyze_polygon():
         center_lon = sum(c[1] for c in coords) / len(coords)
 
         # ── Step 2: Elevation Data
-        elevation_data = fetch_elevation_for_polygon(coords, grid_samples=12)
+        GRID_SIZE = 16
+        elevation_data = fetch_elevation_for_polygon(coords, grid_samples=GRID_SIZE)
 
         # ── Step 3: AI Suitability Analysis
         suitability = analyze_suitability(
@@ -98,11 +99,22 @@ def analyze_polygon():
                 "mean_m": round(float(elevation_data["elevations"].mean()), 2),
                 "depression_m": suitability["depression_m"],
                 "avg_slope_deg": suitability["avg_slope_deg"],
+                "max_slope_deg": suitability["max_slope_deg"],
             },
             "suitability": suitability,
             "pond_specs": specs,
             "elevation_profile": elev_profile,
             "elevation_heatmap": elev_heatmap_data,
+            "elevation_grid": {
+                "grid_size": GRID_SIZE,
+                "values": elevation_data["elevations"].tolist(),
+                "lats":    elevation_data["lats"].tolist(),
+                "lons":    elevation_data["lons"].tolist(),
+                "min_lat": elevation_data["min_lat"],
+                "max_lat": elevation_data["max_lat"],
+                "min_lon": elevation_data["min_lon"],
+                "max_lon": elevation_data["max_lon"],
+            },
         })
 
     except Exception as e:

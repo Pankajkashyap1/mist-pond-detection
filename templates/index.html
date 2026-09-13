@@ -121,6 +121,22 @@
             <!-- MAP -->
             <div class="map-card">
                 <div id="mainMap"></div>
+
+                <!-- Contour Layer Toggle -->
+                <div class="map-controls" id="mapControls" style="display:none">
+                    <button id="btnToggleContour" class="map-ctrl-btn active" title="Toggle contour lines">
+                        <i class="fa-solid fa-circle-half-stroke"></i> Contour Lines
+                    </button>
+                    <button id="btnToggleHeatDots" class="map-ctrl-btn active" title="Toggle elevation dots">
+                        <i class="fa-solid fa-circle-dot"></i> Elevation Dots
+                    </button>
+                    <div class="contour-legend" id="contourLegend">
+                        <span style="color:#1e88e5">Low</span>
+                        <div class="legend-bar"></div>
+                        <span style="color:#e53935">High</span>
+                    </div>
+                </div>
+
                 <div class="map-loading hidden" id="mapLoading">
                     <div class="spinner"></div>
                     <span>Fetching elevation data and running AI analysis…</span>

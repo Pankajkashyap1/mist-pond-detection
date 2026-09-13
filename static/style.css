@@ -328,6 +328,56 @@ small { font-size: 10px; color: var(--text-3); display: block; margin-top: 3px; 
 
 
 
+/* Map Control Bar */
+.map-controls {
+    position: absolute;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 450;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(7, 16, 30, 0.88);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 30px;
+    padding: 6px 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.map-ctrl-btn {
+    background: rgba(255,255,255,.07);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text-2);
+    padding: 5px 12px;
+    font-size: 11px;
+    font-family: var(--b);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .2s;
+    display: flex; align-items: center; gap: 5px;
+}
+.map-ctrl-btn.active {
+    background: rgba(0,212,255,.18);
+    color: var(--cyan);
+    border-color: rgba(0,212,255,.4);
+}
+.map-ctrl-btn:hover { opacity: .85; }
+
+.contour-legend {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 10px; font-weight: 600;
+    padding-left: 8px;
+    border-left: 1px solid var(--border);
+}
+.legend-bar {
+    width: 80px; height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg,
+        #1e88e5, #00acc1, #43a047,
+        #f9a825, #fb8c00, #e53935);
+}
+
 /* Utility */
 .hidden { display: none !important; }
 .text-green  { color: var(--teal); }

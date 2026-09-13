@@ -9,6 +9,8 @@
 const state = {
     drawnLayer: null,
     lastResult: null,
+    contoursVisible: true,
+    dotsVisible: true,
 };
 
 // ── DOM references ─────────────────────────────────────────────────────────
@@ -48,6 +50,9 @@ const DOM = {
     factorGrid:     $('factorGrid'),
     reasonsList:    $('reasonsList'),
     specsGrid:      $('specsGrid'),
+    mapControls:    $('mapControls'),
+    btnToggleContour: $('btnToggleContour'),
+    btnToggleHeatDots: $('btnToggleHeatDots'),
 };
 
 // ── Leaflet Map Setup ──────────────────────────────────────────────────────
@@ -248,7 +253,7 @@ async function runAnalysis() {
 
 // ── RENDER RESULTS ────────────────────────────────────────────────────────
 function renderResults(data) {
-    const { geometry, elevation_stats, suitability, pond_specs, elevation_profile, elevation_heatmap } = data;
+    const { geometry, elevation_stats, suitability, pond_specs, elevation_heatmap, elevation_grid } = data;
 
     renderVerdictBanner(suitability, geometry);
     renderKPIs(geometry, pond_specs);
@@ -256,8 +261,12 @@ function renderResults(data) {
     renderReasons(suitability);
     renderSpecsGrid(geometry, pond_specs);
 
-    // Add heatmap markers to map
+    // Elevation dots + contour lines on map
     renderElevationHeatmap(elevation_heatmap, elevation_stats);
+    renderContourLines(elevation_grid);
+
+    // Show map control bar
+    DOM.mapControls.style.display = 'flex';
 
     // Activate first tab
     switchTab('reasons');
@@ -359,27 +368,191 @@ function renderSpecsGrid(g, specs) {
 
 
 
-// ── Elevation Heatmap on Map ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTOUR MAP ENGINE
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Color scale: Blue (low) → Cyan → Green → Yellow → Orange → Red (high)
+function elevationColor(t) {
+    // t ∈ [0,1], 0=lowest, 1=highest
+    const stops = [
+        [0.00, [30, 136, 229]],   // #1e88e5 deep blue
+        [0.15, [0,  172, 193]],   // #00acc1 cyan
+        [0.35, [67, 160,  71]],   // #43a047 green
+        [0.55, [253, 216,  53]],  // #fdd835 yellow
+        [0.75, [251, 140,   0]],  // #fb8c00 orange
+        [1.00, [229,  57,  53]],  // #e53935 red
+    ];
+    for (let i = 1; i < stops.length; i++) {
+        if (t <= stops[i][0]) {
+            const [t0, c0] = stops[i-1];
+            const [t1, c1] = stops[i];
+            const f = (t - t0) / (t1 - t0);
+            const r = Math.round(c0[0] + f*(c1[0]-c0[0]));
+            const g = Math.round(c0[1] + f*(c1[1]-c0[1]));
+            const b = Math.round(c0[2] + f*(c1[2]-c0[2]));
+            return `rgb(${r},${g},${b})`;
+        }
+    }
+    return '#e53935';
+}
+
+// ── Elevation dot markers ─────────────────────────────────────────────────
 let heatmapMarkers = [];
 function renderElevationHeatmap(heatData, stats) {
     heatmapMarkers.forEach(m => map.removeLayer(m));
     heatmapMarkers = [];
 
     const minE = stats.min_m, maxE = stats.max_m;
-    if (maxE === minE) return;
+    const range = maxE - minE || 1;
 
     heatData.forEach(pt => {
-        const t = (pt.elev - minE) / (maxE - minE);
-        const color = t < 0.3 ? '#00d4ff' : t < 0.6 ? '#00e676' : t < 0.85 ? '#ff9f00' : '#ff4d4d';
+        const t = (pt.elev - minE) / range;
+        const color = elevationColor(t);
         const circle = L.circleMarker([pt.lat, pt.lon], {
-            radius: 5, color: 'transparent', fillColor: color,
-            fillOpacity: 0.55, weight: 0,
+            radius: 5, color: 'transparent',
+            fillColor: color, fillOpacity: 0.72, weight: 0,
         });
-        circle.bindTooltip(`${pt.elev} m`, { permanent: false, opacity: .85 });
+        circle.bindTooltip(`${pt.elev} m ASL`, { permanent: false, opacity: .9 });
         circle.addTo(map);
         heatmapMarkers.push(circle);
     });
+
+    if (!state.dotsVisible) heatmapMarkers.forEach(m => map.removeLayer(m));
 }
+
+// ── Marching Squares Contour Line Generator ───────────────────────────────
+let contourLayers = [];
+
+function renderContourLines(grid) {
+    // Clear previous
+    contourLayers.forEach(l => map.removeLayer(l));
+    contourLayers = [];
+
+    const values = grid.values;           // 2D array [row][col]
+    const lats   = grid.lats;
+    const lons   = grid.lons;
+    const rows   = grid.grid_size;
+    const cols   = grid.grid_size;
+
+    // Find min / max elevation
+    let minE = Infinity, maxE = -Infinity;
+    for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) {
+            if (values[r][c] < minE) minE = values[r][c];
+            if (values[r][c] > maxE) maxE = values[r][c];
+        }
+    if (maxE === minE) return;
+
+    // Generate NUM_LEVELS iso-contour levels
+    const NUM_LEVELS = 10;
+    const levels = [];
+    for (let i = 0; i <= NUM_LEVELS; i++)
+        levels.push(minE + (i / NUM_LEVELS) * (maxE - minE));
+
+    // For each iso-level, run a simple marching-squares variant
+    levels.forEach((threshold, li) => {
+        const t = li / NUM_LEVELS;
+        const color = elevationColor(t);
+        const segments = marchingSquares(values, lats, lons, rows, cols, threshold);
+
+        segments.forEach(seg => {
+            const poly = L.polyline(seg, {
+                color,
+                weight: li % 3 === 0 ? 2.2 : 1.2,   // thicker every 3rd line
+                opacity: 0.82,
+                smoothFactor: 1.2,
+            });
+            poly.bindTooltip(`${threshold.toFixed(1)} m`, { sticky: true, opacity: .85 });
+            poly.addTo(map);
+            contourLayers.push(poly);
+        });
+    });
+
+    if (!state.contoursVisible) contourLayers.forEach(l => map.removeLayer(l));
+}
+
+/**
+ * Simplified Marching Squares — returns an array of LatLng pair arrays
+ * representing iso-contour line segments at `threshold` elevation.
+ */
+function marchingSquares(values, lats, lons, rows, cols, threshold) {
+    const segments = [];
+
+    // Linear interpolation helper along a cell edge
+    function interp(v0, v1, lat0, lon0, lat1, lon1) {
+        const t = (threshold - v0) / (v1 - v0 + 1e-12);
+        return [lat0 + t*(lat1 - lat0), lon0 + t*(lon1 - lon0)];
+    }
+
+    for (let r = 0; r < rows - 1; r++) {
+        for (let c = 0; c < cols - 1; c++) {
+            // Four corners of the cell
+            const v00 = values[r][c],     v01 = values[r][c+1];
+            const v10 = values[r+1][c],   v11 = values[r+1][c+1];
+
+            const lat00 = lats[r][c],     lon00 = lons[r][c];
+            const lat01 = lats[r][c+1],   lon01 = lons[r][c+1];
+            const lat10 = lats[r+1][c],   lon10 = lons[r+1][c];
+            const lat11 = lats[r+1][c+1], lon11 = lons[r+1][c+1];
+
+            // Binary code for which corners are above threshold
+            const code =
+                (v00 >= threshold ? 8 : 0) |
+                (v01 >= threshold ? 4 : 0) |
+                (v11 >= threshold ? 2 : 0) |
+                (v10 >= threshold ? 1 : 0);
+
+            if (code === 0 || code === 15) continue; // all below or all above
+
+            // Pre-compute the four edge midpoints (only needed ones)
+            const top    = () => interp(v00, v01, lat00, lon00, lat01, lon01);
+            const right  = () => interp(v01, v11, lat01, lon01, lat11, lon11);
+            const bottom = () => interp(v10, v11, lat10, lon10, lat11, lon11);
+            const left   = () => interp(v00, v10, lat00, lon00, lat10, lon10);
+
+            // Marching Squares lookup table → pairs of edges to connect
+            const table = {
+                1:  [left, bottom],  2:  [bottom, right], 3:  [left, right],
+                4:  [right, top],    5:  [left, top, right, bottom], // saddle
+                6:  [bottom, top],   7:  [left, top],
+                8:  [top, left],     9:  [top, bottom],
+                10: [right, left, bottom, top], // saddle
+                11: [top, right],    12: [right, left],
+                13: [bottom, left],  14: [bottom, top],  // redundant but safe
+            };
+
+            const edges = table[code];
+            if (!edges) continue;
+
+            // Emit as pairs of [pt1, pt2]
+            for (let i = 0; i < edges.length; i += 2) {
+                if (edges[i+1]) {
+                    segments.push([edges[i](), edges[i+1]()]);
+                }
+            }
+        }
+    }
+    return segments;
+}
+
+// ── Toggle Contour Button ─────────────────────────────────────────────────
+DOM.btnToggleContour.addEventListener('click', () => {
+    state.contoursVisible = !state.contoursVisible;
+    DOM.btnToggleContour.classList.toggle('active', state.contoursVisible);
+    contourLayers.forEach(l => {
+        state.contoursVisible ? l.addTo(map) : map.removeLayer(l);
+    });
+});
+
+// ── Toggle Elevation Dots Button ──────────────────────────────────────────
+DOM.btnToggleHeatDots.addEventListener('click', () => {
+    state.dotsVisible = !state.dotsVisible;
+    DOM.btnToggleHeatDots.classList.toggle('active', state.dotsVisible);
+    heatmapMarkers.forEach(m => {
+        state.dotsVisible ? m.addTo(map) : map.removeLayer(m);
+    });
+});
 
 // ── Tab Switching ─────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(btn => {
