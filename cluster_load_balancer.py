@@ -1,14 +1,14 @@
 """
 cluster_load_balancer.py
 ------------------------
-High-Concurrency Performance-Based Load Balancer & Health Monitor
+High-Concurrency Performance-Based Load Balancer with Automatic Retry & Failover
 for 4-Node Distributed Mist Pond Catchment Analysis Cluster.
 
-Uses SSH Tunneling to route traffic to worker systems:
-- Node 1 (SSH 2257): http://127.0.0.1:5001
-- Node 2 (SSH 2258): http://127.0.0.1:5002
-- Node 3 (SSH 2259): http://127.0.0.1:5003
-- Node 4 (SSH 2260): http://127.0.0.1:5004
+SSH Worker Nodes:
+- System 1 (SSH 2257): http://127.0.0.1:5001
+- System 2 (SSH 2258): http://127.0.0.1:5002
+- System 3 (SSH 2259): http://127.0.0.1:5003
+- System 4 (SSH 2260): http://127.0.0.1:5004
 
 Author: Pankaj Kashyap
 """
@@ -26,61 +26,74 @@ WORKER_NODES = [
     {"name": "System 4 (SSH 2260)", "url": "http://127.0.0.1:5004", "healthy": True, "active_reqs": 0},
 ]
 
-def select_best_worker():
-    """Selects the best available worker node using Least-Connections & Health Checks."""
-    healthy_nodes = [node for node in WORKER_NODES if node["healthy"]]
-    if not healthy_nodes:
-        return WORKER_NODES[0]
-    
-    # Sort by active requests (least loaded first)
-    healthy_nodes.sort(key=lambda n: n["active_reqs"])
-    return healthy_nodes[0]
-
 
 @app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "DELETE"])
 @app.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE"])
 def proxy_to_worker(path):
-    """Proxies incoming API & web traffic to the least loaded cluster worker node."""
-    target_node = select_best_worker()
-    target_url = f"{target_node['url']}/{path}"
-    
-    target_node["active_reqs"] += 1
-    
-    try:
-        headers = {k: v for k, v in request.headers if k.lower() != "host"}
-        
-        if request.files:
-            files_dict = {}
-            for k, f in request.files.items():
-                files_dict[k] = (f.filename, f.read(), f.content_type)
-            resp = requests.request(
-                method=request.method,
-                url=target_url,
-                headers=headers,
-                data=request.form,
-                files=files_dict,
-                params=request.args,
-                timeout=60
-            )
-        else:
-            resp = requests.request(
-                method=request.method,
-                url=target_url,
-                headers=headers,
-                data=request.get_data(),
-                params=request.args,
-                timeout=60
-            )
-            
-        target_node["healthy"] = True
-        response = Response(resp.content, status=resp.status_code, headers=dict(resp.headers))
-        return response
+    """
+    Proxies incoming requests across the 4 cluster worker nodes with automatic retry & failover.
+    """
+    # Sort healthy nodes by active requests (least loaded first)
+    available_nodes = [n for n in WORKER_NODES if n["healthy"]]
+    if not available_nodes:
+        # Reset health status if all marked down
+        for n in WORKER_NODES:
+            n["healthy"] = True
+        available_nodes = WORKER_NODES[:]
 
-    except requests.exceptions.RequestException as e:
-        target_node["healthy"] = False
-        return jsonify({"status": "error", "message": f"Cluster node {target_node['name']} unreachable: {str(e)}"}), 502
-    finally:
-        target_node["active_reqs"] = max(0, target_node["active_reqs"] - 1)
+    available_nodes.sort(key=lambda n: n["active_reqs"])
+
+    headers = {k: v for k, v in request.headers if k.lower() != "host"}
+    req_files = None
+    if request.files:
+        req_files = {}
+        for k, f in request.files.items():
+            f_bytes = f.read()
+            f.seek(0)
+            req_files[k] = (f.filename, f_bytes, f.content_type)
+
+    last_error = "No worker available"
+
+    for target_node in available_nodes:
+        target_url = f"{target_node['url']}/{path}"
+        target_node["active_reqs"] += 1
+        try:
+            if req_files:
+                # Re-send file bytes for retries
+                files_payload = {k: (v[0], v[1], v[2]) for k, v in req_files.items()}
+                resp = requests.request(
+                    method=request.method,
+                    url=target_url,
+                    headers=headers,
+                    data=request.form,
+                    files=files_payload,
+                    params=request.args,
+                    timeout=30
+                )
+            else:
+                resp = requests.request(
+                    method=request.method,
+                    url=target_url,
+                    headers=headers,
+                    data=request.get_data(),
+                    params=request.args,
+                    timeout=30
+                )
+
+            target_node["healthy"] = True
+            return Response(resp.content, status=resp.status_code, headers=dict(resp.headers))
+
+        except requests.exceptions.RequestException as e:
+            target_node["healthy"] = False
+            last_error = f"{target_node['name']} ({target_node['url']}): {str(e)}"
+            continue
+        finally:
+            target_node["active_reqs"] = max(0, target_node["active_reqs"] - 1)
+
+    return jsonify({
+        "status": "error",
+        "message": f"All cluster nodes failed. Last error: {last_error}"
+    }), 502
 
 
 @app.route("/cluster/status", methods=["GET"])
