@@ -1,11 +1,7 @@
 #!/bin/bash
 # ==============================================================================
-# Automated Deployment & SSH Tunneling Script for 4-Node Cluster
-# Nodes:
-#   1. SSH Port 2257 -> Tunnel to Local Port 5001
-#   2. SSH Port 2258 -> Tunnel to Local Port 5002
-#   3. SSH Port 2259 -> Tunnel to Local Port 5003
-#   4. SSH Port 2260 -> Tunnel to Local Port 5004
+# 4-Node Cluster Deployment with SSH ControlMaster Sockets
+# Minimizes password prompts by reusing a single SSH connection per container.
 # ==============================================================================
 
 NODES=(
@@ -15,38 +11,43 @@ NODES=(
     "2260:5004"
 )
 
+mkdir -p ~/.ssh/sockets
+
 echo "======================================================================"
 echo "🚀 Deploying & Tunneling Mist Pond Engine across 4 SSH Systems"
 echo "======================================================================"
 
-# 1. Kill any existing process on local port 5000 (Load Balancer port)
+# 1. Clear local port 5000 (Load Balancer port)
 fuser -k 5000/tcp >/dev/null 2>&1 || pkill -f "python3 web_app.py" >/dev/null 2>&1
 sleep 1
 
-# 2. Deploy to each SSH worker node & establish SSH tunnels
+# 2. Deploy to each SSH worker node reusing multiplexed SSH socket
 for ITEM in "${NODES[@]}"; do
     IFS=":" read -r SSH_PORT LOCAL_PORT <<< "$ITEM"
     echo ""
-    echo "[+] Deploying to student@10.1.75.51 on SSH Port $SSH_PORT..."
+    echo "[+] Connecting to student@10.1.75.51 on SSH Port $SSH_PORT..."
+    
+    # Common SSH options with socket reuse (only asks password ONCE per container)
+    SSH_OPTS="-o StrictHostKeyChecking=no -o ControlMaster=auto -o ControlPath=~/.ssh/sockets/cm_%r@%h_%p -o ControlPersist=10m -p $SSH_PORT"
     
     # Kill any previous tunnel on this local port
     fuser -k ${LOCAL_PORT}/tcp >/dev/null 2>&1
     
-    # Send code archive using tar over SSH
-    tar -cf - --exclude='*.log' --exclude='__pycache__' --exclude='.git' . | ssh -o StrictHostKeyChecking=no -p $SSH_PORT student@10.1.75.51 "mkdir -p ~/smart_pond_detection && cd ~/smart_pond_detection && tar -xf -"
+    # Send code archive using single multiplexed SSH connection
+    tar -cf - --exclude='*.log' --exclude='__pycache__' --exclude='.git' . | ssh $SSH_OPTS student@10.1.75.51 "mkdir -p ~/smart_pond_detection && cd ~/smart_pond_detection && tar -xf -"
     
-    # Start worker on port 5000 inside the remote node
-    ssh -o StrictHostKeyChecking=no -p $SSH_PORT student@10.1.75.51 "fuser -k 5000/tcp 2>/dev/null; cd ~/smart_pond_detection && pip install flask numpy scipy shapely requests 2>/dev/null; PORT=5000 nohup python3 web_app.py > worker_5000.log 2>&1 &"
+    # Start worker on remote host using the same socket
+    ssh $SSH_OPTS student@10.1.75.51 "fuser -k 5000/tcp 2>/dev/null; cd ~/smart_pond_detection && pip install flask numpy scipy shapely requests 2>/dev/null; PORT=5000 nohup python3 web_app.py > worker_5000.log 2>&1 &"
     
-    # Establish SSH Tunnel from local port to remote worker port 5000
-    ssh -f -N -o StrictHostKeyChecking=no -L ${LOCAL_PORT}:127.0.0.1:5000 -p $SSH_PORT student@10.1.75.51
+    # Establish SSH Tunnel using the same socket
+    ssh -f -N $SSH_OPTS -L ${LOCAL_PORT}:127.0.0.1:5000 student@10.1.75.51
     
-    echo "[✔] SSH Tunnel Active: http://127.0.0.1:$LOCAL_PORT -> System (SSH Port $SSH_PORT)"
+    echo "[✔] Tunnel established on http://127.0.0.1:$LOCAL_PORT (SSH Port $SSH_PORT)"
 done
 
 echo ""
 echo "======================================================================"
-echo "🚀 All 4 SSH Tunnels & Worker Nodes Connected!"
+echo "🚀 All 4 SSH Worker Nodes Connected!"
 echo "Starting Central Load Balancer Gateway on Port 5000..."
 echo "======================================================================"
 
