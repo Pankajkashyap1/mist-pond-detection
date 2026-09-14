@@ -286,9 +286,22 @@ def _build_heatmap_data(elevation_data: dict) -> list:
     return result
 
 
+@app.route('/cluster/status', methods=['GET'])
+def cluster_status():
+    return jsonify({
+        "status": "healthy",
+        "mode": "standalone_worker",
+        "active_nodes": 1,
+        "nodes": [
+            {"name": "Standalone Worker Node (Port 5000)", "status": "online", "active_requests": 0}
+        ]
+    })
+
+
 if __name__ == "__main__":
     print("🚀 Starting Mist Pond Detection Server on http://localhost:5000...")
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
 
 
