@@ -60,16 +60,31 @@
                 <ul class="search-results hidden" id="searchResults"></ul>
             </div>
 
+            <!-- KML / KMZ Upload Section -->
+            <div class="sidebar-section kml-upload-box">
+                <h3><i class="fa-solid fa-file-code"></i> Contour Map (KML/KMZ)</h3>
+                <div class="file-dropzone" id="kmlDropzone">
+                    <i class="fa-solid fa-cloud-arrow-up drop-icon"></i>
+                    <p>Drag & Drop <strong>.kml</strong> or <strong>.kmz</strong> contour file here</p>
+                    <input type="file" id="kmlFileInput" accept=".kml,.kmz" style="display:none">
+                    <button class="btn btn-sm btn-ghost" id="btnBrowseKML"><i class="fa-solid fa-folder-open"></i> Browse File</button>
+                </div>
+                <button class="btn btn-sm btn-outline-cyan" id="btnDemoKML" style="margin-top:8px; width:100%">
+                    <i class="fa-solid fa-play"></i> Run Demo with contours_1m.kml
+                </button>
+                <div id="kmlFileInfo" class="kml-file-info hidden"></div>
+            </div>
+
             <!-- Draw Instructions -->
             <div class="sidebar-section draw-guide">
                 <h3><i class="fa-solid fa-pen-ruler"></i> How to Use</h3>
                 <ol class="step-list">
-                    <li><span class="step-num">1</span>Search or navigate to your target location on the map.</li>
-                    <li><span class="step-num">2</span>Click the <strong><i class="fa-solid fa-draw-polygon"></i> Polygon</strong> tool on the map and draw your proposed pond boundary.</li>
-                    <li><span class="step-num">3</span>Click the <strong>🔍 Analyze This Site</strong> button below.</li>
-                    <li><span class="step-num">4</span>View the AI suitability score, recommended depth, and volume.</li>
+                    <li><span class="step-num">1</span>Upload a <strong>.kml/.kmz</strong> contour map above OR draw manually on the map.</li>
+                    <li><span class="step-num">2</span>Click <strong>🔍 Analyze Contour &amp; Find Catchment</strong>.</li>
+                    <li><span class="step-num">3</span>View derived DEM, optimal pond location, and catchment area metrics.</li>
                 </ol>
             </div>
+
 
             <!-- Hydrology Parameters -->
             <div class="sidebar-section">
@@ -207,12 +222,23 @@
 
                 <!-- Tabs for detail sections -->
                 <div class="tabs-row">
-                    <button class="tab active" data-tab="reasons"><i class="fa-solid fa-list-check"></i> AI Analysis</button>
+                    <button class="tab active" data-tab="catchment"><i class="fa-solid fa-mountain-city"></i> Catchment &amp; Terrain</button>
+                    <button class="tab" data-tab="reasons"><i class="fa-solid fa-list-check"></i> AI Analysis</button>
                     <button class="tab" data-tab="specs"><i class="fa-solid fa-drafting-compass"></i> Pond Specs</button>
                 </div>
 
+                <!-- TAB: Catchment & Terrain Analysis -->
+                <div class="tab-content active" id="tab-catchment">
+                    <div class="specs-grid" id="catchmentGrid">
+                        <!-- Populated by JS -->
+                    </div>
+                    <div style="margin-top:16px; display:flex; gap:12px">
+                        <button class="btn btn-sm btn-cyan" id="btnDownloadJSON"><i class="fa-solid fa-download"></i> Download API JSON Report</button>
+                    </div>
+                </div>
+
                 <!-- TAB: AI Reasons -->
-                <div class="tab-content active" id="tab-reasons">
+                <div class="tab-content" id="tab-reasons">
                     <div class="factor-grid" id="factorGrid"></div>
                     <div class="reasons-list" id="reasonsList"></div>
                 </div>
@@ -223,6 +249,7 @@
                         <!-- populated by JS -->
                     </div>
                 </div>
+
 
 
 

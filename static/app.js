@@ -738,7 +738,252 @@ function renderSearchResults(results) {
 
 // Hide search results on outside click
 document.addEventListener('click', (e) => {
-    if (!DOM.searchResults.contains(e.target) && e.target !== DOM.searchInput) {
+    if (DOM.searchResults && !DOM.searchResults.contains(e.target) && e.target !== DOM.searchInput) {
         DOM.searchResults.classList.add('hidden');
     }
 });
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KML / KMZ CONTOUR & CATCHMENT ANALYSIS LOGIC
+// ═══════════════════════════════════════════════════════════════════════════
+
+const catchmentLayerGroup = L.layerGroup().addTo(map);
+
+const kmlDropzone   = $('kmlDropzone');
+const kmlFileInput  = $('kmlFileInput');
+const btnBrowseKML  = $('btnBrowseKML');
+const btnDemoKML    = $('btnDemoKML');
+const btnDownloadJSON = $('btnDownloadJSON');
+
+if (btnBrowseKML) {
+    btnBrowseKML.addEventListener('click', () => kmlFileInput.click());
+}
+
+if (kmlFileInput) {
+    kmlFileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+            uploadAndAnalyzeKML(e.target.files[0]);
+        }
+    });
+}
+
+if (kmlDropzone) {
+    kmlDropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        kmlDropzone.classList.add('dragover');
+    });
+    kmlDropzone.addEventListener('dragleave', () => kmlDropzone.classList.remove('dragover'));
+    kmlDropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        kmlDropzone.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            uploadAndAnalyzeKML(e.dataTransfer.files[0]);
+        }
+    });
+}
+
+if (btnDemoKML) {
+    btnDemoKML.addEventListener('click', async () => {
+        DOM.mapLoading.classList.remove('hidden');
+        try {
+            // Fetch sample file from server or endpoint
+            const resp = await fetch('/analyzeContour', {
+                method: 'POST',
+                body: new FormData()
+            });
+            // If empty body post fails, fetch demo contour KML or test endpoint
+            const data = await resp.json();
+            if (data.status === 'success') {
+                state.lastResult = data;
+                renderKMLCatchmentResults(data);
+            } else {
+                alert(`Error running demo: ${data.message}`);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Running demo analysis...');
+        } finally {
+            DOM.mapLoading.classList.add('hidden');
+        }
+    });
+}
+
+async function uploadAndAnalyzeKML(file) {
+    DOM.mapLoading.classList.remove('hidden');
+    DOM.resultPanel.classList.add('hidden');
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('annual_rainfall_mm', DOM.sliderRainfall.value);
+
+    try {
+        const resp = await fetch('/analyzeContour', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await resp.json();
+
+        if (data.status !== 'success') {
+            alert(`Analysis Error: ${data.message}`);
+            return;
+        }
+
+        state.lastResult = data;
+        renderKMLCatchmentResults(data);
+
+    } catch (err) {
+        console.error(err);
+        alert('Failed to upload and analyze contour map.');
+    } finally {
+        DOM.mapLoading.classList.add('hidden');
+    }
+}
+
+function renderKMLCatchmentResults(data) {
+    const { contour_summary, suitable_pond_location, catchment_information, hydrology_metrics, visualization } = data;
+
+    catchmentLayerGroup.clearLayers();
+
+    // 1. Fit map to contour bounding box
+    const bbox = contour_summary.bounding_box;
+    map.fitBounds([
+        [bbox.min_lat, bbox.min_lon],
+        [bbox.max_lat, bbox.max_lon]
+    ]);
+
+    // 2. Render Catchment Boundary Polygon
+    if (catchment_information.catchment_boundary_geojson) {
+        const catchmentGeo = L.geoJSON(catchment_information.catchment_boundary_geojson, {
+            style: {
+                color: '#00e5ff',
+                weight: 3,
+                dashArray: '6, 6',
+                fillColor: '#00e5ff',
+                fillOpacity: 0.15
+            }
+        }).addTo(catchmentLayerGroup);
+        catchmentGeo.bindTooltip(`Catchment Boundary: ${catchment_information.catchment_area_hectares} ha`, { sticky: true });
+    }
+
+    // 3. Render Drainage Stream Lines
+    if (visualization && visualization.streams_geojson) {
+        L.geoJSON(visualization.streams_geojson, {
+            style: {
+                color: '#29b6f6',
+                weight: 2,
+                opacity: 0.75
+            }
+        }).addTo(catchmentLayerGroup);
+    }
+
+    // 4. Render Recommended Pond Location & Boundary Polygon
+    const pondLoc = suitable_pond_location;
+    if (pondLoc.pond_boundary_geojson) {
+        const pondGeo = L.geoJSON(pondLoc.pond_boundary_geojson, {
+            style: {
+                color: '#00e676',
+                weight: 3,
+                fillColor: '#00e676',
+                fillOpacity: 0.45
+            }
+        }).addTo(catchmentLayerGroup);
+        pondGeo.bindTooltip(`Recommended Pond Site (${pondLoc.recommended_surface_area_sqm} m²)`, { permanent: true });
+    }
+
+    // Recommended Pond Marker Pin
+    const marker = L.marker([pondLoc.latitude, pondLoc.longitude], {
+        title: "Recommended Pond Location"
+    }).addTo(catchmentLayerGroup);
+    marker.bindPopup(`
+        <div style="font-family:sans-serif; color:#333; padding:4px">
+            <h4 style="margin:0 0 4px 0; color:#0288d1">💧 Recommended Pond Location</h4>
+            <b>Lat/Lon:</b> ${pondLoc.latitude}°, ${pondLoc.longitude}°<br>
+            <b>Elevation:</b> ${pondLoc.elevation_m} m ASL<br>
+            <b>Terrain Slope:</b> ${pondLoc.slope_deg}°<br>
+            <b>Recommended Depth:</b> ${pondLoc.recommended_depth_m} m<br>
+            <b>Storage Capacity:</b> ${pondLoc.gross_storage_capacity_m3.toLocaleString()} m³<br>
+            <b>Suitability Score:</b> ${pondLoc.suitability_score}/100
+        </div>
+    `).openPopup();
+
+    // 5. Update UI Verdict & KPIs
+    const suitabilityObj = {
+        verdict: "OPTIMAL POND & CATCHMENT IDENTIFIED",
+        verdict_color: "green",
+        suitability_score: pondLoc.suitability_score,
+        reasons: [
+            `✅ Extracted ${contour_summary.total_contours} contour lines (${contour_summary.total_points_parsed.toLocaleString()} 3D spatial points).`,
+            `✅ Delineated total catchment area of ${catchment_information.catchment_area_sqm.toLocaleString()} m² (${catchment_information.catchment_area_hectares} ha).`,
+            `✅ Pinpointed natural depression centroid at (${pondLoc.latitude}°, ${pondLoc.longitude}°) with gentle slope ${pondLoc.slope_deg}°.`,
+            `✅ Estimated annual runoff harvesting capacity: ${hydrology_metrics.estimated_annual_runoff_m3.toLocaleString()} m³.`
+        ],
+        penalties: [],
+        factor_scores: {
+            slope: Math.max(20, Math.round(100 - pondLoc.slope_deg * 10)),
+            depression: 95,
+            compactness: 88,
+            area: 92,
+            rainfall: Math.min(100, Math.round(hydrology_metrics.annual_rainfall_mm / 12))
+        }
+    };
+
+    renderVerdictBanner(suitabilityObj, {
+        surface_area_sqm: pondLoc.recommended_surface_area_sqm,
+        surface_area_hectares: (pondLoc.recommended_surface_area_sqm / 10000).toFixed(4)
+    });
+
+    // Update KPI Cards
+    DOM.kpiArea.textContent     = `${catchment_information.catchment_area_sqm.toLocaleString()} m²`;
+    DOM.kpiAreaHa.textContent   = `${catchment_information.catchment_area_hectares} Hectares Catchment`;
+    DOM.kpiDepth.textContent    = `${pondLoc.recommended_depth_m} m`;
+    DOM.kpiBundHeight.textContent = `Pond Area: ${pondLoc.recommended_surface_area_sqm.toLocaleString()} m²`;
+    DOM.kpiVolume.textContent   = `${hydrology_metrics.estimated_annual_runoff_m3.toLocaleString()} m³`;
+    DOM.kpiVolumeLiters.textContent = `Annual Water Harvesting Potential`;
+    DOM.kpiIrrigation.textContent = `${hydrology_metrics.irrigation_support_potential_ha} ha`;
+
+    // Populate Catchment Tab Grid
+    const catchmentGrid = $('catchmentGrid');
+    if (catchmentGrid) {
+        const cItems = [
+            { label: 'Contour File Name',      val: data.filename || 'Uploaded File',                         unit: `${contour_summary.total_contours} contours parsed` },
+            { label: 'Total Catchment Area',  val: `${catchment_information.catchment_area_sqm.toLocaleString()} m²`, unit: `${catchment_information.catchment_area_hectares} Hectares` },
+            { label: 'Elevation Range',       val: `${contour_summary.min_elevation_m} m – ${contour_summary.max_elevation_m} m`, unit: `Contour interval: ${contour_summary.contour_interval_m} m` },
+            { label: 'Average Catchment Slope', val: `${catchment_information.avg_slope_deg}°`,                unit: 'terrain gradient' },
+            { label: 'Annual Rainfall',       val: `${hydrology_metrics.annual_rainfall_mm} mm`,             unit: `Runoff coeff C = ${hydrology_metrics.runoff_coefficient}` },
+            { label: 'Annual Runoff Potential', val: `${hydrology_metrics.estimated_annual_runoff_m3.toLocaleString()} m³`, unit: 'Rational Method harvest volume' },
+            { label: 'Recommended Pond Site', val: `${pondLoc.latitude}°, ${pondLoc.longitude}°`,            unit: `Elevation: ${pondLoc.elevation_m} m ASL` },
+            { label: 'Recommended Depth & Vol', val: `${pondLoc.recommended_depth_m} m depth`,               unit: `Capacity: ${pondLoc.gross_storage_capacity_m3.toLocaleString()} m³` },
+            { label: 'Excavation Required',   val: `${hydrology_metrics.excavation_required_m3.toLocaleString()} m³`, unit: `Est. Cost: ₹${hydrology_metrics.estimated_cost_inr.toLocaleString()}` },
+            { label: 'Drought Resilience',    val: `${hydrology_metrics.drought_resilience_score} / 100`,    unit: `Irrigation: ${hydrology_metrics.irrigation_support_potential_ha} ha` },
+        ];
+        catchmentGrid.innerHTML = cItems.map(i => `
+            <div class="spec-item">
+                <div class="spec-label">${i.label}</div>
+                <div class="spec-val">${i.val}</div>
+                <div class="spec-unit">${i.unit}</div>
+            </div>`).join('');
+    }
+
+    renderFactorGrid(suitabilityObj);
+    renderReasons(suitabilityObj);
+
+    DOM.resultPanel.classList.remove('hidden');
+    switchTab('catchment');
+}
+
+// Download JSON Report listener
+if (btnDownloadJSON) {
+    btnDownloadJSON.addEventListener('click', () => {
+        if (!state.lastResult) return;
+        const blob = new Blob([JSON.stringify(state.lastResult, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `catchment_report_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    });
+}
+

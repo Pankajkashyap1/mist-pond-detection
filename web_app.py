@@ -19,8 +19,10 @@ from suitability_engine import (
     recommend_pond_specs,
 )
 from hydrology_engine import HydrologyEngine
+from contour_engine import ContourParser, ContourAnalysisEngine
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,6 +180,78 @@ def map_contours():
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5.  CONTOUR MAP ANALYSIS & CATCHMENT ESTIMATION API
+#     POST /analyzeContour
+#     POST /findCatchment
+#     POST /api/analyzeContour
+#     POST /api/findCatchment
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/analyzeContour", methods=["POST"])
+@app.route("/findCatchment", methods=["POST"])
+@app.route("/api/analyzeContour", methods=["POST"])
+@app.route("/api/findCatchment", methods=["POST"])
+def analyze_contour_api():
+    """
+    Backend API route accepting contour map files (KML / KMZ).
+    Derives terrain elevation grid, slope, D8 flow accumulation, suitable pond location,
+    and returns exact catchment area boundaries and hydrology metrics in JSON format.
+    """
+    try:
+        uploaded_file = None
+        for key in ["file", "contour_file", "kml", "kmz", "contour_map"]:
+            if key in request.files:
+                uploaded_file = request.files[key]
+                break
+
+        if not uploaded_file and request.files:
+            uploaded_file = list(request.files.values())[0]
+
+        if uploaded_file and uploaded_file.filename:
+            file_bytes = uploaded_file.read()
+            filename = uploaded_file.filename
+        elif request.data and len(request.data) > 0:
+            file_bytes = request.data
+            filename = "uploaded_contour.kml"
+        else:
+            # Fallback to sample contour map if available
+            sample_path = "/home/pankaj/Videos/contours_1m.kml"
+            if os.path.exists(sample_path):
+                with open(sample_path, "rb") as f:
+                    file_bytes = f.read()
+                filename = "contours_1m.kml"
+            else:
+                return jsonify({
+                    "status": "error",
+                    "message": "No contour map file provided. Please upload a KML or KMZ file as multipart/form-data with key 'file'."
+                }), 400
+
+
+        rainfall_mm = float(request.form.get("annual_rainfall_mm", request.args.get("annual_rainfall_mm", 1100.0)))
+        runoff_coeff = float(request.form.get("runoff_coefficient", request.args.get("runoff_coefficient", 0.30)))
+        grid_res = int(request.form.get("grid_resolution", request.args.get("grid_resolution", 80)))
+
+        # Step 1: Parse 3D Contour Points & Line Geometries from KML/KMZ
+        parsed_kml = ContourParser.parse_file(file_bytes, filename)
+
+        # Step 2: Perform D8 Hydrological Terrain Analysis & Catchment Delineation
+        analysis_result = ContourAnalysisEngine.analyze_terrain(
+            parsed_kml=parsed_kml,
+            annual_rainfall_mm=rainfall_mm,
+            runoff_coefficient=runoff_coeff,
+            grid_resolution=grid_res
+        )
+
+        analysis_result["filename"] = filename
+        return jsonify(analysis_result)
+
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
