@@ -4,6 +4,8 @@ contour_engine.py
 Core Engine for KML/KMZ Contour Processing, DEM Generation, D8 Hydrological Terrain Analysis,
 Optimal Pond Location Discovery, and Automated Catchment Delineation.
 
+Features zero-dependency NumPy fallback for maximum compatibility across SSH container nodes.
+
 Author: Pankaj Kashyap
 Project: Mist Pond Detection System
 """
@@ -15,8 +17,13 @@ import time
 import zipfile
 import xml.etree.ElementTree as ET
 import numpy as np
-import scipy.ndimage
-from scipy.interpolate import griddata
+
+try:
+    import scipy.ndimage
+    from scipy.interpolate import griddata
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
 
 try:
     from shapely.geometry import MultiPoint, Polygon, mapping
@@ -50,12 +57,10 @@ class ContourParser:
         all_points = []
         contour_lines = []
 
-        # Find all placemarks
         placemarks = [el for el in root.findall(".//") if get_tag_name(el) == "Placemark"]
 
         for pm in placemarks:
             elev = None
-            # 1. Parse elevation from <name>
             name_el = None
             for child in pm:
                 if get_tag_name(child) == "name":
@@ -70,7 +75,6 @@ class ContourParser:
                     if match:
                         elev = float(match.group())
 
-            # 2. Check ExtendedData / SimpleData if elev not found
             if elev is None:
                 for sd in pm.findall(".//"):
                     if get_tag_name(sd) == "SimpleData" and sd.text:
@@ -82,7 +86,6 @@ class ContourParser:
                             except ValueError:
                                 pass
 
-            # 3. Check Description regex if elev still None
             if elev is None:
                 for child in pm:
                     if get_tag_name(child) == "description" and child.text:
@@ -91,7 +94,6 @@ class ContourParser:
                             elev = float(match.group(1))
                             break
 
-            # Parse line coordinates
             coords_str = ""
             for child in pm.findall(".//"):
                 if get_tag_name(child) in ("LineString", "Polygon", "Point"):
@@ -111,7 +113,6 @@ class ContourParser:
                         lon = float(parts[0])
                         lat = float(parts[1])
                         pt_elev = elev
-                        # Use 3rd coordinate only if elev was not found in metadata
                         if pt_elev is None and len(parts) >= 3:
                             try:
                                 candidate_z = float(parts[2])
@@ -136,7 +137,7 @@ class ContourParser:
         if not all_points:
             raise ValueError("No valid geographic 3D contour points could be extracted from the file.")
 
-        # Outlier filtering using Interquartile Range (IQR) to remove dummy boundary points
+        # IQR Outlier filtering
         elev_vals = np.array([p[2] for p in all_points])
         q25, q75 = np.percentile(elev_vals, [25, 75])
         iqr = q75 - q25
@@ -150,7 +151,6 @@ class ContourParser:
         lats = [p[1] for p in filtered_points]
         elevs = [p[2] for p in filtered_points]
 
-        # Calculate contour interval
         unique_elevs = sorted(list(set(elevs)))
         if len(unique_elevs) > 1:
             diffs = np.diff(unique_elevs)
@@ -180,7 +180,7 @@ class ContourAnalysisEngine:
 
     @staticmethod
     def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        R = 6371000.0  # Earth radius in metres
+        R = 6371000.0
         phi1, phi2 = math.radians(lat1), math.radians(lat2)
         dphi = math.radians(lat2 - lat1)
         dlam = math.radians(lon2 - lon1)
@@ -195,15 +195,6 @@ class ContourAnalysisEngine:
         runoff_coefficient: float = 0.30,
         grid_resolution: int = 80
     ) -> dict:
-        """
-        Executes full hydrological analysis:
-        1. Interpolates 3D contour points onto a Digital Elevation Model (DEM) grid.
-        2. Computes terrain slope, aspect, and D8 flow directions.
-        3. Computes D8 Flow Accumulation matrix to identify natural streams.
-        4. Finds the optimal pond location (local elevation minimum with high drainage).
-        5. Performs reverse D8 flow tracing to delineate the exact catchment area.
-        6. Computes catchment metrics and water harvesting potential.
-        """
         start_time = time.time()
 
         points = parsed_kml["points"]
@@ -215,42 +206,49 @@ class ContourAnalysisEngine:
         lats = np.array([p[1] for p in points])
         elevs = np.array([p[2] for p in points])
 
-        # ── 1. Create Regular Grid DEM
         GRID_N = grid_resolution
         grid_lons = np.linspace(min_lon, max_lon, GRID_N)
         grid_lats = np.linspace(min_lat, max_lat, GRID_N)
         mesh_lon, mesh_lat = np.meshgrid(grid_lons, grid_lats)
 
-        # Downsample points for fast cubic/linear interpolation if dataset is huge
         if len(points) > 15000:
             sub_idx = np.random.choice(len(points), size=15000, replace=False)
             s_lons, s_lats, s_elevs = lons[sub_idx], lats[sub_idx], elevs[sub_idx]
         else:
             s_lons, s_lats, s_elevs = lons, lats, elevs
 
-        dem = griddata((s_lons, s_lats), s_elevs, (mesh_lon, mesh_lat), method="linear")
+        # DEM Grid Interpolation with SciPy or pure NumPy fallback
+        if HAS_SCIPY:
+            dem = griddata((s_lons, s_lats), s_elevs, (mesh_lon, mesh_lat), method="linear")
+            nan_mask = np.isnan(dem)
+            if np.any(nan_mask):
+                dem_nearest = griddata((s_lons, s_lats), s_elevs, (mesh_lon, mesh_lat), method="nearest")
+                dem[nan_mask] = dem_nearest[nan_mask]
+            dem = scipy.ndimage.gaussian_filter(dem, sigma=1.0)
+        else:
+            # Pure NumPy Inverse Distance Weighting (IDW) fallback
+            dem = np.zeros(mesh_lon.shape)
+            rows, cols = dem.shape
+            pts = np.column_stack((s_lons, s_lats))
+            k = min(8, len(s_lons))
+            for r in range(rows):
+                for c in range(cols):
+                    glon, glat = mesh_lon[r, c], mesh_lat[r, c]
+                    dists = np.hypot(pts[:, 0] - glon, pts[:, 1] - glat)
+                    idx = np.argpartition(dists, k)[:k]
+                    w = 1.0 / (dists[idx] ** 2 + 1e-12)
+                    dem[r, c] = np.sum(w * s_elevs[idx]) / np.sum(w)
 
-        # Fill boundary NaNs with nearest neighbor interpolation
-        nan_mask = np.isnan(dem)
-        if np.any(nan_mask):
-            dem_nearest = griddata((s_lons, s_lats), s_elevs, (mesh_lon, mesh_lat), method="nearest")
-            dem[nan_mask] = dem_nearest[nan_mask]
-
-        # Smooth DEM slightly to eliminate noise artifacts
-        dem = scipy.ndimage.gaussian_filter(dem, sigma=1.0)
-
-        # Compute cell dimensions in meters
         dy = cls.haversine_m(min_lat, min_lon, max_lat, min_lon) / (GRID_N - 1)
         dx = cls.haversine_m(min_lat, min_lon, min_lat, max_lon) / (GRID_N - 1)
         cell_area_sqm = dx * dy
 
-        # ── 2. Slope & Aspect Calculations
+        # Slope & Aspect Calculations
         gy, gx = np.gradient(dem, dy, dx)
         slope_rad = np.arctan(np.sqrt(gx ** 2 + gy ** 2))
         slope_deg = np.degrees(slope_rad)
-        aspect_deg = (np.degrees(np.arctan2(-gx, gy)) + 360) % 360
 
-        # ── 3. D8 Flow Direction & Flow Accumulation
+        # D8 Flow Direction & Flow Accumulation
         rows, cols = dem.shape
         flow_dir = np.full((rows, cols), -1, dtype=int)
         d8_offsets = [(-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1)]
@@ -273,9 +271,8 @@ class ContourAnalysisEngine:
                                 best_dir = idx
                 flow_dir[r, c] = best_dir
 
-        # Flow Accumulation Engine
         flow_acc = np.ones((rows, cols), dtype=float)
-        sorted_indices = np.argsort(dem.ravel())[::-1]  # Highest to lowest elevation
+        sorted_indices = np.argsort(dem.ravel())[::-1]
 
         for idx in sorted_indices:
             r = idx // cols
@@ -287,15 +284,13 @@ class ContourAnalysisEngine:
                 if 0 <= nr < rows and 0 <= nc < cols:
                     flow_acc[nr, nc] += flow_acc[r, c]
 
-        # ── 4. Identify Optimal Pond Location
+        # Identify Optimal Pond Location
         min_elev = float(dem.min())
         elev_range = max(1.0, float(dem.max()) - min_elev)
         norm_elev = (dem - min_elev) / elev_range
 
-        # Suitability Score Grid: High Flow Acc, Low Elevation, Gentle Slope
         score_grid = (flow_acc / flow_acc.max()) * 0.5 + (1.0 - norm_elev) * 0.35 + (1.0 / (slope_deg + 1.0)) * 0.15
 
-        # Ignore outer grid border cells for pond placement
         border_margin = max(2, GRID_N // 15)
         score_grid[:border_margin, :] = 0
         score_grid[-border_margin:, :] = 0
@@ -309,7 +304,7 @@ class ContourAnalysisEngine:
         opt_elev = float(dem[opt_r, opt_c])
         opt_slope = float(slope_deg[opt_r, opt_c])
 
-        # ── 5. Reverse D8 Tracing for Catchment Delineation
+        # Reverse D8 Tracing for Catchment Delineation
         upstream_cells = set()
         queue = [(opt_r, opt_c)]
         upstream_cells.add((opt_r, opt_c))
@@ -319,11 +314,10 @@ class ContourAnalysisEngine:
             for idx, (dr, dc) in enumerate(d8_offsets):
                 nr, nc = curr_r - dr, curr_c - dc
                 if 0 <= nr < rows and 0 <= nc < cols and (nr, nc) not in upstream_cells:
-                    if flow_dir[nr, nc] == idx:  # Neighbor flows into curr
+                    if flow_dir[nr, nc] == idx:
                         upstream_cells.add((nr, nc))
                         queue.append((nr, nc))
 
-        # Catchment Metrics
         catchment_cell_count = len(upstream_cells)
         catchment_area_sqm = round(catchment_cell_count * cell_area_sqm, 2)
         catchment_area_ha = round(catchment_area_sqm / 10000.0, 4)
@@ -336,16 +330,14 @@ class ContourAnalysisEngine:
         catchment_max_elev = round(float(np.max(upstream_elevs)), 2)
         catchment_avg_slope = round(float(np.mean(upstream_slopes)), 2)
 
-        # Build Catchment Boundary Polygon GeoJSON
         catchment_polygon_geojson = cls._generate_polygon_geojson(upstream_coords)
 
-        # Recommended Pond Dimensions
         rec_pond_surface_sqm = round(min(12000.0, max(1200.0, catchment_area_sqm * 0.04)), 2)
         rec_pond_depth_m = round(min(3.5, max(1.8, 1.5 + (catchment_max_elev - opt_elev) * 0.08)), 2)
         rec_pond_volume_m3 = round(rec_pond_surface_sqm * rec_pond_depth_m * 0.75, 2)
         pond_polygon_geojson = cls._generate_pond_boundary_geojson(opt_lat, opt_lon, rec_pond_surface_sqm)
 
-        # ── 6. Hydrology & Water Harvesting Estimation
+        # Hydrology Metrics
         rainfall_m = annual_rainfall_mm / 1000.0
         annual_runoff_m3 = round(runoff_coefficient * rainfall_m * catchment_area_sqm, 2)
         irrigation_support_ha = round(annual_runoff_m3 / 5000.0, 2)
@@ -353,7 +345,6 @@ class ContourAnalysisEngine:
         est_cost_inr = round(excavation_m3 * 350, 0)
         drought_resilience_score = min(100, max(30, int((annual_runoff_m3 / (rec_pond_volume_m3 + 1e-5)) * 40)))
 
-        # Stream / Drainage Network GeoJSON
         stream_threshold = float(np.percentile(flow_acc, 92))
         stream_lines_geojson = cls._extract_stream_lines_geojson(flow_acc, flow_dir, grid_lats, grid_lons, stream_threshold, d8_offsets)
 
@@ -407,7 +398,6 @@ class ContourAnalysisEngine:
 
     @staticmethod
     def _generate_polygon_geojson(points: list) -> dict:
-        """Generates GeoJSON polygon from point set using Convex Hull or bounding polygon."""
         if not points:
             return None
         if SHAPELY_AVAILABLE and len(points) >= 3:
@@ -418,7 +408,6 @@ class ContourAnalysisEngine:
             except Exception:
                 pass
 
-        # Fallback Bounding Box Polygon
         lons = [p[0] for p in points]
         lats = [p[1] for p in points]
         min_lo, max_lo = min(lons), max(lons)
@@ -434,7 +423,6 @@ class ContourAnalysisEngine:
 
     @staticmethod
     def _generate_pond_boundary_geojson(lat: float, lon: float, surface_area_sqm: float) -> dict:
-        """Generates a rectangular GeoJSON polygon around the target lat/lon centroid."""
         side_length_m = math.sqrt(surface_area_sqm)
         half_m = side_length_m / 2.0
         lat_offset = half_m / 111000.0
@@ -453,7 +441,6 @@ class ContourAnalysisEngine:
 
     @staticmethod
     def _extract_stream_lines_geojson(flow_acc: np.ndarray, flow_dir: np.ndarray, grid_lats: np.ndarray, grid_lons: np.ndarray, threshold: float, d8_offsets: list) -> dict:
-        """Extracts high flow accumulation drainage stream channels as GeoJSON LineStrings."""
         rows, cols = flow_acc.shape
         features = []
 
@@ -478,5 +465,5 @@ class ContourAnalysisEngine:
                             })
         return {
             "type": "FeatureCollection",
-            "features": features[:150]  # Limit top 150 stream segments for fast map rendering
+            "features": features[:150]
         }
