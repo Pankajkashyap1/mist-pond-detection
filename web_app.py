@@ -287,7 +287,8 @@ def _build_heatmap_data(elevation_data: dict) -> list:
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    print("🚀 Starting Mist Pond Detection Server on http://localhost:5000...")
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
 
 
