@@ -1,8 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Single-Connection 4-Node Cluster Deployment Script
-# Merges file extraction, worker startup, and SSH tunneling into ONE single SSH call
-# per container (Exactly 1 password prompt per container!).
+# Fix: Removed -N flag so remote worker execution & tunneling happen in 1 step.
 # ==============================================================================
 
 NODES=(
@@ -29,8 +28,8 @@ for ITEM in "${NODES[@]}"; do
     # Kill any previous tunnel on this local port
     fuser -k ${LOCAL_PORT}/tcp >/dev/null 2>&1
     
-    # ONE SINGLE SSH COMMAND: Copies code, starts worker, & sets up tunnel in 1 step!
-    tar -cf - --exclude='*.log' --exclude='__pycache__' --exclude='.git' . | ssh -o StrictHostKeyChecking=no -f -N -L ${LOCAL_PORT}:127.0.0.1:5000 -p $SSH_PORT student@10.1.75.51 "mkdir -p ~/smart_pond_detection && cd ~/smart_pond_detection && tar -xf - && fuser -k 5000/tcp 2>/dev/null; PORT=5000 nohup python3 web_app.py > worker_5000.log 2>&1 &"
+    # ONE SINGLE SSH COMMAND (without -N): Extracts code, starts worker, & sets up tunnel
+    tar -cf - --exclude='*.log' --exclude='__pycache__' --exclude='.git' . | ssh -o StrictHostKeyChecking=no -f -L ${LOCAL_PORT}:127.0.0.1:5000 -p $SSH_PORT student@10.1.75.51 "mkdir -p ~/smart_pond_detection && cd ~/smart_pond_detection && tar -xf - && fuser -k 5000/tcp 2>/dev/null; PORT=5000 nohup python3 web_app.py > worker_5000.log 2>&1 &"
     
     echo "[✔] Worker & Tunnel Active: http://127.0.0.1:$LOCAL_PORT -> SSH Port $SSH_PORT"
 done
