@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Bulletproof 4-Node Cluster Deployment & Tunneling Script
-# Uses standalone tar.gz bundle + scp to avoid stdout password prompt corruption.
+# Uses standalone tar.gz bundle + scp + disown to guarantee background persistence.
 # ==============================================================================
 
 NODES=(
@@ -40,8 +40,10 @@ for ITEM in "${NODES[@]}"; do
     # Step A: Copy bundle file via scp
     scp -o StrictHostKeyChecking=no -P $SSH_PORT $BUNDLE student@10.1.75.51:~/smart_pond_bundle.tar.gz
     
-    # Step B: Unpack, kill old worker, and start fresh worker process on remote host
-    ssh -o StrictHostKeyChecking=no -p $SSH_PORT student@10.1.75.51 "mkdir -p ~/smart_pond_detection && tar -xzf ~/smart_pond_bundle.tar.gz -C ~/smart_pond_detection/ && cd ~/smart_pond_detection && fuser -k 5000/tcp 2>/dev/null; PORT=5000 nohup python3 web_app.py > worker_5000.log 2>&1 &"
+    # Step B: Unpack, kill old worker, and start fresh persistent worker process with disown
+    ssh -o StrictHostKeyChecking=no -p $SSH_PORT student@10.1.75.51 "mkdir -p ~/smart_pond_detection && tar -xzf ~/smart_pond_bundle.tar.gz -C ~/smart_pond_detection/ && cd ~/smart_pond_detection && fuser -k 5000/tcp 2>/dev/null; PORT=5000 nohup python3 web_app.py > worker_5000.log 2>&1 & disown"
+    
+    sleep 1.5
     
     # Step C: Establish background SSH tunnel for local port
     ssh -o StrictHostKeyChecking=no -f -N -L ${LOCAL_PORT}:127.0.0.1:5000 -p $SSH_PORT student@10.1.75.51
