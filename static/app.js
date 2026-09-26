@@ -52,8 +52,6 @@ const DOM = {
     specsGrid:      $('specsGrid'),
     mapControls:    $('mapControls'),
     btnToggleContour: $('btnToggleContour'),
-    btnFullMapContour: $('btnFullMapContour'),
-    btnToggleHeatDots: $('btnToggleHeatDots'),
 };
 
 // ── Leaflet Map Setup ──────────────────────────────────────────────────────
