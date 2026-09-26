@@ -52,6 +52,8 @@ const DOM = {
     specsGrid:      $('specsGrid'),
     mapControls:    $('mapControls'),
     btnToggleContour: $('btnToggleContour'),
+    btnFullMapContour: $('btnFullMapContour'),
+    btnToggleHeatDots: $('btnToggleHeatDots'),
 };
 
 // ── Leaflet Map Setup ──────────────────────────────────────────────────────
@@ -512,7 +514,6 @@ function renderElevationHeatmap(heatData, stats) {
             radius: 4, color: 'transparent',
             fillColor: color, fillOpacity: 0.65, weight: 0,
         });
-        circle.bindTooltip(`${pt.elev} m ASL`, { permanent: false, opacity: .9 });
         circle.addTo(map);
         heatmapMarkers.push(circle);
     });
@@ -568,7 +569,6 @@ function renderContourLines(grid) {
                 opacity: isMajor ? 0.92 : 0.80,
                 smoothFactor: 1.0,
             });
-            poly.bindTooltip(`${threshold.toFixed(1)} m`, { sticky: true, opacity: .9 });
             poly.addTo(map);
             contourLayers.push(poly);
         });
@@ -891,7 +891,6 @@ function renderKMLCatchmentResults(data) {
                 fillOpacity: 0.15
             }
         }).addTo(catchmentLayerGroup);
-        catchmentGeo.bindTooltip(`Catchment Boundary: ${catchment_information.catchment_area_hectares} ha`, { sticky: true });
     }
 
     // 3. Render Drainage Stream Lines
@@ -916,7 +915,6 @@ function renderKMLCatchmentResults(data) {
                 fillOpacity: 0.45
             }
         }).addTo(catchmentLayerGroup);
-        pondGeo.bindTooltip(`Recommended Pond Site (${pondLoc.recommended_surface_area_sqm} m²)`, { permanent: true });
     }
 
     // Recommended Pond Marker Pin
