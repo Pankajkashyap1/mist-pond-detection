@@ -17,13 +17,12 @@ from suitability_engine import (
     polygon_perimeter_m,
     analyze_suitability,
     recommend_pond_specs,
+    check_existing_waterbody,
 )
 from hydrology_engine import HydrologyEngine
 from contour_engine import ContourParser, ContourAnalysisEngine
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1.  HOME
@@ -59,6 +58,9 @@ def analyze_polygon():
         center_lat = sum(c[0] for c in coords) / len(coords)
         center_lon = sum(c[1] for c in coords) / len(coords)
 
+        # ── Check for existing river / pond / lake in the area
+        existing_waterbody = check_existing_waterbody(coords)
+
         # ── Step 2: Elevation Data (32x32 grid for ultra-smooth contours)
         GRID_SIZE = 32
         elevation_data = fetch_elevation_for_polygon(coords, grid_samples=GRID_SIZE)
@@ -89,6 +91,7 @@ def analyze_polygon():
 
         return jsonify({
             "status": "success",
+            "existing_waterbody": existing_waterbody,
             "geometry": {
                 "surface_area_sqm": round(area_sqm, 2),
                 "surface_area_hectares": round(area_sqm / 10000, 4),

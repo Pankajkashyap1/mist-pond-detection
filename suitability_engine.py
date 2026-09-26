@@ -395,3 +395,72 @@ def recommend_pond_specs(
         "surface_area_hectares": round(surface_area_sqm / 10000, 4),
         "perimeter_m": 0,  # filled in by caller
     }
+
+
+def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any]:
+    """
+    Queries OpenStreetMap Overpass API / spatial features to detect if a river, stream,
+    pond, lake, or reservoir already exists within the user-drawn area.
+    """
+    if not polygon_coords or len(polygon_coords) < 3:
+        return {"exists": False}
+
+    lats = [p[0] for p in polygon_coords]
+    lons = [p[1] for p in polygon_coords]
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+
+    # Overpass QL query: node, way, relation with natural=water, waterway=* inside bounding box
+    overpass_url = "https://overpass-api.de/api/interpreter"
+    query = f"""
+    [out:json][timeout:5];
+    (
+      node["natural"="water"]({min_lat},{min_lon},{max_lat},{max_lon});
+      way["natural"="water"]({min_lat},{min_lon},{max_lat},{max_lon});
+      relation["natural"="water"]({min_lat},{min_lon},{max_lat},{max_lon});
+      node["waterway"]({min_lat},{min_lon},{max_lat},{max_lon});
+      way["waterway"]({min_lat},{min_lon},{max_lat},{max_lon});
+      relation["waterway"]({min_lat},{min_lon},{max_lat},{max_lon});
+    );
+    out tags 10;
+    """
+    try:
+        resp = requests.post(overpass_url, data={"data": query}, timeout=4)
+        if resp.status_code == 200:
+            elements = resp.json().get("elements", [])
+            if elements:
+                names = []
+                w_types = set()
+                for el in elements:
+                    tags = el.get("tags", {})
+                    if "name" in tags:
+                        names.append(tags["name"])
+                    if "waterway" in tags:
+                        w_types.add(tags["waterway"].capitalize())
+                    elif "water" in tags:
+                        w_types.add(tags["water"].capitalize())
+                    elif "natural" in tags:
+                        w_types.add(tags["natural"].capitalize())
+
+                w_type_str = "/".join(w_types) if w_types else "Water Body / River"
+                name_str = f" ('{names[0]}')" if names else ""
+                
+                return {
+                    "exists": True,
+                    "waterbody_type": w_type_str,
+                    "name": names[0] if names else None,
+                    "title": f"⚠️ Existing {w_type_str}{name_str} Detected!",
+                    "message": f"An existing {w_type_str.lower()}{name_str} is already present in this selected area.",
+                    "recommendation": f"Instead of excavating a new pond, consider desilting, deepening, or upgrading the existing {w_type_str.lower()} for enhanced catchment storage."
+                }
+    except Exception as e:
+        print(f"[Overpass Waterbody Check: {e}]")
+
+    return {
+        "exists": False,
+        "waterbody_type": None,
+        "title": "No Existing Water Body",
+        "message": "Area is clear of existing rivers or ponds.",
+        "recommendation": "Location is open for new pond excavation."
+    }
+

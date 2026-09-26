@@ -254,7 +254,13 @@ async function runAnalysis() {
 
 // ── RENDER RESULTS ────────────────────────────────────────────────────────
 function renderResults(data) {
-    const { geometry, elevation_stats, suitability, pond_specs, elevation_heatmap, elevation_grid } = data;
+    const { geometry, elevation_stats, suitability, pond_specs, elevation_heatmap, elevation_grid, existing_waterbody } = data;
+
+    if (existing_waterbody && existing_waterbody.exists) {
+        renderWaterbodyBanner(existing_waterbody);
+    } else {
+        removeWaterbodyBanner();
+    }
 
     renderVerdictBanner(suitability, geometry);
     renderKPIs(geometry, pond_specs);
@@ -271,6 +277,30 @@ function renderResults(data) {
 
     // Activate first tab
     switchTab('reasons');
+}
+
+function renderWaterbodyBanner(wb) {
+    let banner = document.getElementById('waterbodyAlertBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'waterbodyAlertBanner';
+        banner.className = 'waterbody-alert-banner';
+        DOM.resultPanel.prepend(banner);
+    }
+    banner.innerHTML = `
+        <div class="wb-alert-icon">⚠️</div>
+        <div class="wb-alert-body">
+            <div class="wb-alert-title">${wb.title || 'Existing Water Body Detected!'}</div>
+            <div class="wb-alert-msg">${wb.message || 'An existing river/pond/water feature is already located in this drawn area.'}</div>
+            <div class="wb-alert-rec">💡 <strong>Pond Assistant Note:</strong> ${wb.recommendation}</div>
+        </div>
+    `;
+    banner.style.display = 'flex';
+}
+
+function removeWaterbodyBanner() {
+    const banner = document.getElementById('waterbodyAlertBanner');
+    if (banner) banner.style.display = 'none';
 }
 
 // ── Verdict Banner ────────────────────────────────────────────────────────
