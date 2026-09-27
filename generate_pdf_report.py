@@ -80,7 +80,7 @@ def build_pdf():
     info_data = [
         [Paragraph("Author / Team:", meta_label), Paragraph("<b>Pankaj Kashyap</b> (Dept. of Computer Science & Design)", meta_val)],
         [Paragraph("GitHub Repository:", meta_label), Paragraph("<a href='https://github.com/Pankajkashyap1/mist-pond-detection'><u>https://github.com/Pankajkashyap1/mist-pond-detection</u></a>", meta_val)],
-        [Paragraph("Live Front-end URL:", meta_label), Paragraph("<a href='https://6681d877c64817.lhr.life'><u>https://6681d877c64817.lhr.life</u></a> (or <code>http://localhost:5000</code>)", meta_val)],
+        [Paragraph("Live Front-end URL:", meta_label), Paragraph("<a href='https://c8acfb86e8f596.lhr.life'><u>https://c8acfb86e8f596.lhr.life</u></a> (or <code>http://localhost:5000</code>)", meta_val)],
         [Paragraph("Working REST API:", meta_label), Paragraph("<code>POST /api/analyze_polygon</code>, <code>POST /analyzeContour</code>", meta_val)],
     ]
     t_info = Table(info_data, colWidths=[120, 412])
