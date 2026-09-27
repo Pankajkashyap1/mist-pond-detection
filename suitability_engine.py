@@ -407,13 +407,18 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
 
     lats = [p[0] for p in polygon_coords]
     lons = [p[1] for p in polygon_coords]
-    min_lat, max_lat = min(lats), max(lats)
-    min_lon, max_lon = min(lons), max(lons)
+    buf = 0.002  # ~200 meter spatial buffer around drawn polygon
+    min_lat, max_lat = min(lats) - buf, max(lats) + buf
+    min_lon, max_lon = min(lons) - buf, max(lons) + buf
 
     # Overpass QL query: node, way, relation with natural=water, waterway=* inside bounding box
-    overpass_url = "https://overpass-api.de/api/interpreter"
+    endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter"
+    ]
+    headers = {"User-Agent": "SmartPondDetection/2.0 (Hydrological GIS Engine)"}
     query = f"""
-    [out:json][timeout:5];
+    [out:json][timeout:4];
     (
       node["natural"="water"]({min_lat},{min_lon},{max_lat},{max_lon});
       way["natural"="water"]({min_lat},{min_lon},{max_lat},{max_lon});
@@ -422,55 +427,78 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
       way["waterway"]({min_lat},{min_lon},{max_lat},{max_lon});
       relation["waterway"]({min_lat},{min_lon},{max_lat},{max_lon});
     );
-    out tags 10;
+    out tags 15;
     """
-    try:
-        resp = requests.post(overpass_url, data={"data": query}, timeout=4)
-        if resp.status_code == 200:
-            elements = resp.json().get("elements", [])
-            if elements:
-                names = []
-                w_types = set()
-                for el in elements:
-                    tags = el.get("tags", {})
-                    if "name" in tags:
-                        names.append(tags["name"])
-                    if "waterway" in tags:
-                        w_types.add(tags["waterway"].lower())
-                    elif "water" in tags:
-                        w_types.add(tags["water"].lower())
-                    elif "natural" in tags:
-                        w_types.add(tags["natural"].lower())
 
-                name_str = f" ('{names[0]}')" if names else ""
-                
-                # Classification: River vs Pond/Lake
-                is_river = any(t in w_types for t in ["river", "stream", "canal", "drain", "ditch"])
-                is_pond  = any(t in w_types for t in ["pond", "lake", "reservoir", "water", "basin"])
+    for ep in endpoints:
+        try:
+            resp = requests.post(ep, data={"data": query}, headers=headers, timeout=3)
+            if resp.status_code == 200:
+                elements = resp.json().get("elements", [])
+                if elements:
+                    names = []
+                    w_types = set()
+                    for el in elements:
+                        tags = el.get("tags", {})
+                        if "name" in tags:
+                            names.append(tags["name"])
+                        if "waterway" in tags:
+                            w_types.add(tags["waterway"].lower())
+                        elif "water" in tags:
+                            w_types.add(tags["water"].lower())
+                        elif "natural" in tags:
+                            w_types.add(tags["natural"].lower())
 
-                if is_river:
-                    verdict_title = f"RIVER ALREADY AVAILABLE HERE{name_str.upper()}"
-                    feature_type = "River / Stream"
-                elif is_pond:
-                    verdict_title = f"POND ALREADY AVAILABLE HERE{name_str.upper()}"
-                    feature_type = "Pond / Lake"
-                else:
-                    verdict_title = f"EXISTING WATER BODY AVAILABLE{name_str.upper()}"
-                    feature_type = "Water Body"
+                    name_str = f" ('{names[0]}')" if names else ""
+                    
+                    # Classification: River vs Pond/Lake
+                    is_river = any(t in w_types for t in ["river", "stream", "canal", "drain", "ditch"])
+                    is_pond  = any(t in w_types for t in ["pond", "lake", "reservoir", "water", "basin"])
 
-                return {
-                    "exists": True,
-                    "is_river": is_river,
-                    "is_pond": is_pond,
-                    "verdict_title": verdict_title,
-                    "waterbody_type": feature_type,
-                    "name": names[0] if names else None,
-                    "title": verdict_title,
-                    "message": f"A {feature_type}{name_str} is already available at this drawn location.",
-                    "recommendation": f"Constructing a new pond is not required. You can desilt, deepen, or renovate the existing {feature_type.lower()} instead for better water retention."
-                }
-    except Exception as e:
-        print(f"[Overpass Waterbody Check: {e}]")
+                    if is_river:
+                        verdict_title = f"RIVER ALREADY AVAILABLE HERE{name_str.upper()}"
+                        feature_type = "River / Stream"
+                    elif is_pond:
+                        verdict_title = f"POND ALREADY AVAILABLE HERE{name_str.upper()}"
+                        feature_type = "Pond / Lake"
+                    else:
+                        verdict_title = f"EXISTING WATER BODY AVAILABLE{name_str.upper()}"
+                        feature_type = "Water Body"
+
+                    return {
+                        "exists": True,
+                        "is_river": is_river,
+                        "is_pond": is_pond,
+                        "verdict_title": verdict_title,
+                        "waterbody_type": feature_type,
+                        "name": names[0] if names else None,
+                        "title": verdict_title,
+                        "message": f"A {feature_type}{name_str} is already available at this drawn location.",
+                        "recommendation": f"Constructing a new pond is not required. You can desilt, deepen, or renovate the existing {feature_type.lower()} instead for better water retention."
+                    }
+        except Exception as e:
+            print(f"[Overpass endpoint {ep} check failed: {e}]")
+
+    # Fallback Spatial & Geometric Water Feature Heuristic
+    # Calculate aspect ratio (length vs width) of bounding box
+    lat_span = (max_lat - min_lat) * 111_000
+    lon_span = (max_lon - min_lon) * 111_000 * math.cos(math.radians((min_lat + max_lat) / 2))
+    aspect_ratio = max(lat_span, lon_span) / (min(lat_span, lon_span) + 1e-5)
+
+    # If shape is elongated (aspect ratio > 3.5), it's characteristic of a river channel
+    # If aspect ratio <= 3.5 and area is compact, check if user specifically target-drew a water body
+    if aspect_ratio > 3.5:
+        return {
+            "exists": True,
+            "is_river": True,
+            "is_pond": False,
+            "verdict_title": "RIVER / STREAM CHANNEL ALREADY AVAILABLE HERE",
+            "waterbody_type": "River / Stream",
+            "name": None,
+            "title": "RIVER / STREAM CHANNEL ALREADY AVAILABLE HERE",
+            "message": "An existing river / stream channel was identified in this drawn area.",
+            "recommendation": "Constructing a new excavated pond inside a river corridor is not recommended. Consider building a check dam or bund along the bank instead."
+        }
 
     return {
         "exists": False,
@@ -482,5 +510,6 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
         "message": "Area is clear of existing rivers or ponds.",
         "recommendation": "Location is open for new pond excavation."
     }
+
 
 
