@@ -6,6 +6,7 @@ This version has a draw-on-map feature for users to mark proposed pond sites.
 """
 
 import os
+import math
 import requests as req_lib
 import numpy as np
 from flask import Flask, render_template, request, jsonify
@@ -89,6 +90,47 @@ def analyze_polygon():
         elev_profile = _extract_perimeter_profile(elevation_data)
         elev_heatmap_data = _build_heatmap_data(elevation_data)
 
+        # ── Step 6: Generate GeoJSON for Green Suggested Pond Box, Catchment Polygon & Drainage Streams
+        opt_lat, opt_lon = center_lat, center_lon
+        rec_pond_surface_sqm = min(12000.0, max(1200.0, area_sqm * 0.15))
+        side_length_m = math.sqrt(rec_pond_surface_sqm)
+        half_m = side_length_m / 2.0
+        lat_offset = half_m / 111000.0
+        lon_offset = half_m / (111000.0 * math.cos(math.radians(opt_lat)))
+
+        pond_boundary_geojson = {
+            "type": "Polygon",
+            "coordinates": [[
+                [round(opt_lon - lon_offset, 6), round(opt_lat - lat_offset, 6)],
+                [round(opt_lon + lon_offset, 6), round(opt_lat - lat_offset, 6)],
+                [round(opt_lon + lon_offset, 6), round(opt_lat + lat_offset, 6)],
+                [round(opt_lon - lon_offset, 6), round(opt_lat + lat_offset, 6)],
+                [round(opt_lon - lon_offset, 6), round(opt_lat - lat_offset, 6)]
+            ]]
+        }
+
+        catchment_boundary_geojson = {
+            "type": "Polygon",
+            "coordinates": [[[c[1], c[0]] for c in coords] + [[coords[0][1], coords[0][0]]]]
+        }
+
+        streams_features = []
+        for pt in coords[:-1]:
+            mid_lat = (pt[0] + opt_lat) / 2.0
+            mid_lon = (pt[1] + opt_lon) / 2.0
+            streams_features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[pt[1], pt[0]], [mid_lon, mid_lat], [opt_lon, opt_lat]]
+                }
+            })
+
+        streams_geojson = {
+            "type": "FeatureCollection",
+            "features": streams_features
+        }
+
         return jsonify({
             "status": "success",
             "existing_waterbody": existing_waterbody,
@@ -109,6 +151,9 @@ def analyze_polygon():
             },
             "suitability": suitability,
             "pond_specs": specs,
+            "pond_boundary_geojson": pond_boundary_geojson,
+            "catchment_boundary_geojson": catchment_boundary_geojson,
+            "streams_geojson": streams_geojson,
             "elevation_profile": elev_profile,
             "elevation_heatmap": elev_heatmap_data,
             "elevation_grid": {

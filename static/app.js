@@ -274,6 +274,9 @@ function renderResults(data) {
     renderElevationHeatmap(elevation_heatmap, elevation_stats);
     renderContourLines(elevation_grid);
 
+    // Render Catchment Boundary, Drainage Streams, and Green Suggested Pond Box
+    renderCatchmentLayers(data);
+
     // Render Recommended Pond Pin Marker & Auto-open Popup
     renderPondLocationMarkerAndPopup(data);
 
@@ -282,6 +285,46 @@ function renderResults(data) {
 
     // Activate first tab
     switchTab('reasons');
+}
+
+function renderCatchmentLayers(data) {
+    catchmentLayerGroup.clearLayers();
+
+    // 1. Render Catchment Boundary Polygon (Cyan Dashed Line #00e5ff)
+    if (data.catchment_boundary_geojson) {
+        L.geoJSON(data.catchment_boundary_geojson, {
+            style: {
+                color: '#00e5ff',
+                weight: 3,
+                dashArray: '6, 6',
+                fillColor: '#00e5ff',
+                fillOpacity: 0.15
+            }
+        }).addTo(catchmentLayerGroup);
+    }
+
+    // 2. Render Drainage Stream Lines (Blue #29b6f6)
+    if (data.streams_geojson) {
+        L.geoJSON(data.streams_geojson, {
+            style: {
+                color: '#29b6f6',
+                weight: 2,
+                opacity: 0.8
+            }
+        }).addTo(catchmentLayerGroup);
+    }
+
+    // 3. Render Green Suggested Pond Excavation Box (#00e676)
+    if (data.pond_boundary_geojson) {
+        L.geoJSON(data.pond_boundary_geojson, {
+            style: {
+                color: '#00e676',
+                weight: 3,
+                fillColor: '#00e676',
+                fillOpacity: 0.45
+            }
+        }).addTo(catchmentLayerGroup);
+    }
 }
 
 function renderPondLocationMarkerAndPopup(data) {
