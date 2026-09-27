@@ -641,9 +641,8 @@ function marchingSquares(values, lats, lons, rows, cols, threshold) {
     return segments;
 }
 
-// ── Full Map Contours (Entire Viewport) ───────────────────────────────────
+// ── Full Map Contours & Elevation Dots Generator (Entire Viewport) ───────
 async function fetchFullMapContours() {
-    if (!state.contoursVisible) return;
     const bounds = map.getBounds();
     const body = {
         min_lat: bounds.getSouth(),
@@ -661,7 +660,29 @@ async function fetchFullMapContours() {
         });
         const data = await resp.json();
         if (data.status === 'success' && data.elevation_grid) {
-            renderContourLines(data.elevation_grid);
+            const grid = data.elevation_grid;
+
+            // 1. Render Contour Lines
+            if (state.contoursVisible) {
+                renderContourLines(grid);
+            }
+
+            // 2. Build and Render Elevation Dots
+            const values = grid.values;
+            const lats   = grid.lats;
+            const lons   = grid.lons;
+            let minE = Infinity, maxE = -Infinity;
+            const heatmapData = [];
+
+            for (let r = 0; r < grid.grid_size; r++) {
+                for (let c = 0; c < grid.grid_size; c++) {
+                    const e = values[r][c];
+                    if (e < minE) minE = e;
+                    if (e > maxE) maxE = e;
+                    heatmapData.push({ lat: lats[r][c], lon: lons[r][c], elev: e });
+                }
+            }
+            renderElevationHeatmap(heatmapData, { min_m: minE, max_m: maxE });
         }
     } catch (err) {
         console.error('Failed to fetch full map contours:', err);
@@ -670,27 +691,33 @@ async function fetchFullMapContours() {
     }
 }
 
-// ── Button listeners ──────────────────────────────────────────────────────
+// ── Full Map Contours Button Listener ─────────────────────────────────────
 DOM.btnFullMapContour.addEventListener('click', () => {
+    state.contoursVisible = true;
+    DOM.btnToggleContour.classList.add('active');
+    DOM.btnFullMapContour.classList.add('active');
     fetchFullMapContours();
 });
 
 // Refresh contours automatically when map move ends
 let moveTimeout = null;
 map.on('moveend', () => {
-    if (state.contoursVisible) {
+    if (state.contoursVisible || state.dotsVisible) {
         clearTimeout(moveTimeout);
         moveTimeout = setTimeout(() => fetchFullMapContours(), 600);
     }
 });
 
 // Trigger full map contours automatically on initial load
-setTimeout(() => fetchFullMapContours(), 1000);
+setTimeout(() => fetchFullMapContours(), 800);
 
-// ── Toggle Contour Button ─────────────────────────────────────────────────
+// ── Toggle Contour Lines Button ──────────────────────────────────────────
 DOM.btnToggleContour.addEventListener('click', () => {
     state.contoursVisible = !state.contoursVisible;
     DOM.btnToggleContour.classList.toggle('active', state.contoursVisible);
+    if (!state.contoursVisible) {
+        DOM.btnFullMapContour.classList.remove('active');
+    }
     if (state.contoursVisible && contourLayers.length === 0) {
         fetchFullMapContours();
     } else {
@@ -704,9 +731,13 @@ DOM.btnToggleContour.addEventListener('click', () => {
 DOM.btnToggleHeatDots.addEventListener('click', () => {
     state.dotsVisible = !state.dotsVisible;
     DOM.btnToggleHeatDots.classList.toggle('active', state.dotsVisible);
-    heatmapMarkers.forEach(m => {
-        state.dotsVisible ? m.addTo(map) : map.removeLayer(m);
-    });
+    if (state.dotsVisible && heatmapMarkers.length === 0) {
+        fetchFullMapContours();
+    } else {
+        heatmapMarkers.forEach(m => {
+            state.dotsVisible ? m.addTo(map) : map.removeLayer(m);
+        });
+    }
 });
 
 // ── Tab Switching ─────────────────────────────────────────────────────────
