@@ -15,9 +15,21 @@ import socket
 import select
 import tarfile
 import getpass
-import paramiko
 import threading
 import subprocess
+
+# Auto-install or import Paramiko gracefully
+try:
+    import paramiko
+except ImportError:
+    print("📦 'paramiko' package not found. Installing automatically via pip...")
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "paramiko", "--quiet"], check=True)
+        import paramiko
+        print("✔ 'paramiko' installed successfully!")
+    except Exception:
+        paramiko = None
+        print("⚠️ Could not install paramiko. Falling back to native system SSH commands.")
 
 SSH_HOST = "10.1.75.51"
 SSH_USER = "student"
