@@ -56,7 +56,8 @@ done
 
 echo ""
 echo "======================================================================"
-echo "🚀 Step 3: Starting Central 4-Node Load Balancer Gateway on Port 5000"
+echo "🚀 Step 3: Starting Public HTTPS Tunnel & Central Load Balancer"
 echo "======================================================================"
 
+python3 expose_public_url.py 5000 &
 python3 cluster_load_balancer.py

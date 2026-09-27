@@ -171,6 +171,9 @@ def main():
     print("Starting Central Load Balancer Gateway on http://localhost:5000...")
     print("======================================================================\n")
     
+    # Start Public HTTPS Tunnel in background
+    threading.Thread(target=subprocess.run, args=("python3 expose_public_url.py 5000",), kwargs={"shell": True}, daemon=True).start()
+
     # Import and launch Load Balancer Gateway
     from cluster_load_balancer import app as load_balancer_app
     load_balancer_app.run(host="0.0.0.0", port=5000, debug=False)
