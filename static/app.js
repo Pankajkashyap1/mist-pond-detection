@@ -934,32 +934,6 @@ if (kmlDropzone) {
     });
 }
 
-if (btnDemoKML) {
-    btnDemoKML.addEventListener('click', async () => {
-        DOM.mapLoading.classList.remove('hidden');
-        try {
-            // Fetch sample file from server or endpoint
-            const resp = await fetch('/analyzeContour', {
-                method: 'POST',
-                body: new FormData()
-            });
-            // If empty body post fails, fetch demo contour KML or test endpoint
-            const data = await resp.json();
-            if (data.status === 'success') {
-                state.lastResult = data;
-                renderKMLCatchmentResults(data);
-            } else {
-                alert(`Error running demo: ${data.message}`);
-            }
-        } catch (err) {
-            console.error(err);
-            alert('Running demo analysis...');
-        } finally {
-            DOM.mapLoading.classList.add('hidden');
-        }
-    });
-}
-
 async function uploadAndAnalyzeKML(file) {
     DOM.mapLoading.classList.remove('hidden');
     DOM.resultPanel.classList.add('hidden');
