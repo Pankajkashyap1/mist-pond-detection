@@ -96,14 +96,25 @@ To ensure commercial-grade software quality, operational reliability, and user a
 %% =====================================================================
 \section{System Architecture and High-Level Design}
 \label{sec:architecture}
-The application uses a stateless client-server cluster architecture. The Leaflet.js map frontend communicates with a central Flask Load Balancer Gateway, which routes requests to 4 containerized backend worker nodes via round-robin distribution. Data flows from map interaction to backend elevation and rainfall REST APIs, then streams back as GeoJSON overlays and analytical metrics.
+The system architecture follows a high-performance, stateless multi-layer design to ensure low latency and horizontal scalability under heavy concurrent usage. Figure~\ref{fig:architecture} illustrates the four primary tiers of the system:
+\begin{enumerate}
+    \item \textbf{Client GIS Interface Layer:} An interactive browser client constructed with Leaflet.js v1.9, Leaflet.draw, and vanilla CSS flexbox controls. It includes an interactive drag-to-resize splitter handle (\texttt{.resize-handle-bar}) and preset buttons to re-apportion viewport height. Visual overlays render color-coded green pond boundaries, cyan catchment polygons, and blue drainage stream lines.
+    \item \textbf{Gateway \& Load Balancer Layer:} A Flask-based round-robin Gateway (`cluster_load_balancer.py`) exposed publicly over encrypted TLS/HTTPS via SSH tunneling (`localhost.run`). Incoming client requests are dynamically distributed across 4 containerized worker nodes running on ports 2257--2260.
+    \item \textbf{Specialized Hydro-Geological Calculation Engines:} 
+    \begin{itemize}
+        \item \emph{Contour \& D8 Engine (`contour_engine.py`):} Parses uploaded KML/KMZ 3D point clouds, interpolates 2D DEM grids, executes D8 single-flow direction modeling, and performs reverse BFS graph traversal for catchment extraction.
+        \item \emph{Suitability Engine (`suitability_engine.py`):} Evaluates terrain elevation depressions, applies multi-factor site scoring algorithms, checks existing water body exclusion rules, and calculates recommended pond dimensions and excavation depth.
+        \item \emph{Hydrology Engine (`hydrology_engine.py`):} Queries historical precipitation archives, computes surface runoff volume using the Rational Method ($V = C \cdot R \cdot A$), and estimates net storage capacity ($\text{m}^3$) and cropland irrigation potential (hectares).
+    \end{itemize}
+    \item \textbf{External API & Data Layer:} Interfaces asynchronously with the Open-Meteo Historical Climate API for historical precipitation data, OpenStreetMap Nominatim for geocoding, and SRTM DEM tiles for regional elevation data.
+\end{enumerate}
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=0.88\linewidth]{sample_data/fig1_contour_lines.png}
-  \caption{High-level system architecture showing real-time contour line GIS rendering on the map canvas.}
+  \includegraphics[width=0.92\linewidth]{sample_data/high_level_architecture.png}
+  \caption{High-level system architecture showing client GIS interface, round-robin load balancer gateway, specialized calculation engines, and external REST APIs.}
   \label{fig:architecture}
-  \Description{High-level system architecture showing real-time contour line GIS rendering on the map canvas.}
+  \Description{High-level system architecture diagram showing client, gateway, calculation engines, and external APIs.}
 \end{figure}
 
 \subsection{Technology Stack}
@@ -229,7 +240,7 @@ In accordance with the assignment's LLM Usage Policy, Google DeepMind Antigravit
 The codebase is hosted on GitHub with an automated deployment pipeline:
 \begin{itemize}
     \item \textbf{GitHub Repository URL:} \url{https://github.com/Pankajkashyap1/mist-pond-detection}
-    \item \textbf{Live Working Front-end URL:} \url{https://c8acfb86e8f596.lhr.life} (or \url{http://localhost:5000})
+    \item \textbf{Live Working Front-end URL:} \url{https://ec33fa8b9f8dea.lhr.life} (or \url{http://localhost:5000})
 \end{itemize}
 
 \subsection{Repository Folder Structure}

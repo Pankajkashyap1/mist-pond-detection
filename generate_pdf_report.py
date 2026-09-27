@@ -80,7 +80,7 @@ def build_pdf():
     info_data = [
         [Paragraph("Author / Team:", meta_label), Paragraph("<b>Pankaj Kashyap</b> (Dept. of Computer Science & Design)", meta_val)],
         [Paragraph("GitHub Repository:", meta_label), Paragraph("<a href='https://github.com/Pankajkashyap1/mist-pond-detection'><u>https://github.com/Pankajkashyap1/mist-pond-detection</u></a>", meta_val)],
-        [Paragraph("Live Front-end URL:", meta_label), Paragraph("<a href='https://c8acfb86e8f596.lhr.life'><u>https://c8acfb86e8f596.lhr.life</u></a> (or <code>http://localhost:5000</code>)", meta_val)],
+        [Paragraph("Live Front-end URL:", meta_label), Paragraph("<a href='https://ec33fa8b9f8dea.lhr.life'><u>https://ec33fa8b9f8dea.lhr.life</u></a> (or <code>http://localhost:5000</code>)", meta_val)],
         [Paragraph("Working REST API:", meta_label), Paragraph("<code>POST /api/analyze_polygon</code>, <code>POST /analyzeContour</code>", meta_val)],
     ]
     t_info = Table(info_data, colWidths=[120, 412])
@@ -151,15 +151,22 @@ def build_pdf():
         story.append(Paragraph(f"• {item}", body_style))
     story.append(Spacer(1, 6))
 
-    # Section 3: Architecture & Visualization Figures
-    story.append(Paragraph("3. System Visualization and GIS Interfaces", h1_style))
-    story.append(Paragraph("The frontend incorporates interactive terrain visualization tools including smoothed iso-contour loops, elevation heat-dots, 1m KML watershed processing, and real-time polygon drawing analysis.", body_style))
+    # Section 3: Architecture & High Level Design
+    story.append(Paragraph("3. System Architecture and High-Level Design", h1_style))
+    story.append(Paragraph("The platform operates on a multi-tier stateless architecture comprising: (1) Leaflet GIS Client Interface with dynamic resizer bar; (2) Flask Round-Robin Gateway with HTTPS SSH tunnel; (3) Hydro-Geological Calculation Engines (contour_engine.py, suitability_engine.py, hydrology_engine.py); and (4) External REST API services.", body_style))
 
-    # Figure 1: Contour Lines
+    # Figure HLD Architecture
+    hld_path = os.path.join(SAMPLE_DIR, "high_level_architecture.png")
+    if os.path.exists(hld_path):
+        story.append(Image(hld_path, width=480, height=270))
+        story.append(Paragraph("Figure 1: High-Level System Architecture Diagram showing client interface, load balancer gateway, worker engines, and external REST APIs.", caption_style))
+        story.append(Spacer(1, 6))
+
+    # Figure 2: Contour Lines
     fig1_path = os.path.join(SAMPLE_DIR, "fig1_contour_lines.png")
     if os.path.exists(fig1_path):
         story.append(Image(fig1_path, width=480, height=270))
-        story.append(Paragraph("Figure 1: Screen-wide Chaikin-smoothed rainbow topographic iso-contour line visualization across the visible viewport.", caption_style))
+        story.append(Paragraph("Figure 2: Screen-wide Chaikin-smoothed rainbow topographic iso-contour line visualization across the visible viewport.", caption_style))
         story.append(Spacer(1, 6))
 
     # Figure 2: Elevation Dots
