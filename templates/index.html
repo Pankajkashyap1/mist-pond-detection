@@ -157,6 +157,19 @@
                 </div>
             </div>
 
+            <!-- DRAGGABLE RESIZE HANDLE / SPLITTER BAR -->
+            <div class="resize-handle-bar" id="mapResizeHandle">
+                <div class="resize-grip" title="Click & Drag to resize Map / Result height">
+                    <i class="fa-solid fa-up-down"></i> <span>Drag to Resize Map</span>
+                </div>
+                <div class="resize-quick-btns">
+                    <button type="button" id="btnHeightSmall" class="btn-resize-preset" title="Compact Map (30% Height)">Compact</button>
+                    <button type="button" id="btnHeightMedium" class="btn-resize-preset active" title="Balanced View (55% Height)">Balanced</button>
+                    <button type="button" id="btnHeightLarge" class="btn-resize-preset" title="Expanded Map (75% Height)">Large Map</button>
+                    <button type="button" id="btnHeightMax" class="btn-resize-preset" title="Full Map Focus (90% Height)">Full Map</button>
+                </div>
+            </div>
+
             <!-- RESULT PANEL (hidden until analysis runs) -->
             <div id="resultPanel" class="result-panel hidden">
 

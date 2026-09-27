@@ -1110,3 +1110,91 @@ if (btnDownloadJSON) {
     });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DYNAMIC MAP & RESULT AREA HEIGHT RESIZER
+// ═══════════════════════════════════════════════════════════════════════════
+(function setupMapResizer() {
+    const handle = $('mapResizeHandle');
+    const mapCard = document.querySelector('.map-card');
+    const centerPanel = document.querySelector('.center-panel');
+
+    if (!handle || !mapCard || !centerPanel) return;
+
+    const presetBtns = {
+        small: $('btnHeightSmall'),
+        medium: $('btnHeightMedium'),
+        large: $('btnHeightLarge'),
+        max: $('btnHeightMax'),
+    };
+
+    function setMapHeight(vhVal) {
+        mapCard.style.height = `${vhVal}vh`;
+        if (map && typeof map.invalidateSize === 'function') {
+            setTimeout(() => map.invalidateSize(), 150);
+        }
+    }
+
+    function setActiveBtn(activeKey) {
+        Object.keys(presetBtns).forEach(k => {
+            if (presetBtns[k]) presetBtns[k].classList.toggle('active', k === activeKey);
+        });
+    }
+
+    if (presetBtns.small) {
+        presetBtns.small.addEventListener('click', () => { setMapHeight(30); setActiveBtn('small'); });
+    }
+    if (presetBtns.medium) {
+        presetBtns.medium.addEventListener('click', () => { setMapHeight(55); setActiveBtn('medium'); });
+    }
+    if (presetBtns.large) {
+        presetBtns.large.addEventListener('click', () => { setMapHeight(75); setActiveBtn('large'); });
+    }
+    if (presetBtns.max) {
+        presetBtns.max.addEventListener('click', () => { setMapHeight(88); setActiveBtn('max'); });
+    }
+
+    let isDragging = false;
+
+    function onPointerDown(e) {
+        isDragging = true;
+        mapCard.classList.add('resizing');
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+    }
+
+    function onPointerMove(e) {
+        if (!isDragging) return;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const panelRect = centerPanel.getBoundingClientRect();
+        const relativeY = clientY - panelRect.top;
+        const newHeightVh = (relativeY / window.innerHeight) * 100;
+
+        // Constrain height between 15vh and 88vh
+        const clampedVh = Math.max(15, Math.min(88, newHeightVh));
+        mapCard.style.height = `${clampedVh}vh`;
+
+        if (map && typeof map.invalidateSize === 'function') {
+            map.invalidateSize();
+        }
+    }
+
+    function onPointerUp() {
+        if (isDragging) {
+            isDragging = false;
+            mapCard.classList.remove('resizing');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            if (map && typeof map.invalidateSize === 'function') {
+                map.invalidateSize();
+            }
+        }
+    }
+
+    handle.addEventListener('mousedown', onPointerDown);
+    handle.addEventListener('touchstart', onPointerDown, { passive: true });
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('touchmove', onPointerMove, { passive: true });
+    window.addEventListener('mouseup', onPointerUp);
+    window.addEventListener('touchend', onPointerUp);
+})();
+
