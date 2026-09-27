@@ -285,7 +285,7 @@ function renderResults(data) {
 }
 
 function renderPondLocationMarkerAndPopup(data) {
-    const { geometry, elevation_stats, suitability, pond_specs, existing_waterbody } = data;
+    const { geometry, elevation_stats, suitability, pond_specs } = data;
 
     if (currentPondMarker) {
         map.removeLayer(currentPondMarker);
@@ -300,21 +300,15 @@ function renderPondLocationMarkerAndPopup(data) {
     const volume = pond_specs ? pond_specs.net_usable_volume_m3.toLocaleString() : Math.round(geometry.surface_area_sqm * 1.5).toLocaleString();
     const score = suitability.suitability_score;
 
-    const isWb = existing_waterbody && existing_waterbody.exists;
-    const popupTitle = isWb ? (existing_waterbody.title || '⚠️ Existing Water Body Detected') : '💧 Recommended Pond Location';
-    const titleColor = isWb ? '#e65100' : '#0288d1';
-    const titleIcon = isWb ? (existing_waterbody.is_river ? '🌊' : '⚠️') : '💧';
-
     const popupContent = `
         <div class="pond-recommendation-popup" style="font-family: 'Inter', system-ui, sans-serif; padding: 2px;">
-            <div style="font-weight: 700; font-size: 13.5px; color: ${titleColor}; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                <span>${titleIcon}</span> ${popupTitle}
+            <div style="font-weight: 700; font-size: 14px; color: #0288d1; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                <span>💧</span> Recommended Pond Location
             </div>
             <div style="font-size: 12.5px; color: #2d3748; line-height: 1.6;">
                 <div><strong>Lat/Lon:</strong> ${lat}°, ${lon}°</div>
                 <div><strong>Elevation:</strong> ${elev} m ASL</div>
                 <div><strong>Terrain Slope:</strong> ${slope}°</div>
-                ${isWb ? `<div><strong>Status:</strong> Existing ${existing_waterbody.waterbody_type || 'Water Feature'}</div>` : ''}
                 <div><strong>Recommended Depth:</strong> ${depth} m</div>
                 <div><strong>Storage Capacity:</strong> ${volume} m³</div>
                 <div><strong>Suitability Score:</strong> ${score}/100</div>
@@ -323,7 +317,7 @@ function renderPondLocationMarkerAndPopup(data) {
     `;
 
     currentPondMarker = L.marker([lat, lon], {
-        title: popupTitle
+        title: "Recommended Pond Location"
     }).addTo(map);
 
     currentPondMarker.bindPopup(popupContent, {
