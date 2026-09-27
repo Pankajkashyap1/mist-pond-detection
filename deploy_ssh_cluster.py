@@ -2,7 +2,7 @@
 deploy_ssh_cluster.py
 ---------------------
 Automated Multi-Node SSH Deployment & Native Paramiko Load Balancer Gateway.
-Assigns UNIQUE ports (5001, 5002, 5003, 5004) to each container node to eliminate port conflicts.
+Fixed double-directory extraction bug and pathing issues for guaranteed worker execution.
 
 Author: Pankaj Kashyap
 Usage: python3 deploy_ssh_cluster.py
@@ -17,33 +17,41 @@ import tarfile
 import getpass
 import paramiko
 import threading
+import subprocess
 
 SSH_HOST = "10.1.75.51"
 SSH_USER = "student"
 CONTAINERS = [
-    {"ssh_port": 2257, "worker_port": 5001, "name": "Container 1 (SSH 2257)"},
-    {"ssh_port": 2258, "worker_port": 5002, "name": "Container 2 (SSH 2258)"},
-    {"ssh_port": 2259, "worker_port": 5003, "name": "Container 3 (SSH 2259)"},
-    {"ssh_port": 2260, "worker_port": 5004, "name": "Container 4 (SSH 2260)"},
+    {"ssh_port": 2257, "local_port": 5001, "name": "Container 1 (SSH 2257)"},
+    {"ssh_port": 2258, "local_port": 5002, "name": "Container 2 (SSH 2258)"},
+    {"ssh_port": 2259, "local_port": 5003, "name": "Container 3 (SSH 2259)"},
+    {"ssh_port": 2260, "local_port": 5004, "name": "Container 4 (SSH 2260)"},
 ]
 
 BUNDLE_PATH = "/tmp/smart_pond_bundle.tar.gz"
 CLIENTS = []
 
 
+def clear_local_ports():
+    """Kills any stale local processes holding ports 5000 to 5004."""
+    print("🧹 Cleaning up local ports 5000-5004...")
+    for port in [5000, 5001, 5002, 5003, 5004]:
+        subprocess.run(f"fuser -k -9 {port}/tcp >/dev/null 2>&1 || true", shell=True)
+    subprocess.run("pkill -9 -f 'ssh.*-L' >/dev/null 2>&1 || true", shell=True)
+    time.sleep(1)
+
+
 def create_bundle():
-    """Creates a clean tar.gz bundle of the project directory."""
+    """Creates a clean flat tar.gz bundle of the project directory."""
     print("📦 Packaging project archive bundle...")
     project_dir = os.path.dirname(os.path.abspath(__file__))
     with tarfile.open(BUNDLE_PATH, "w:gz") as tar:
-        for root, dirs, files in os.walk(project_dir):
-            dirs[:] = [d for d in dirs if d not in ("__pycache__", ".git")]
-            for file in files:
-                if not file.endswith(".log") and not file.endswith(".tar.gz"):
-                    full_path = os.path.join(root, file)
-                    arcname = os.path.relpath(full_path, project_dir)
-                    tar.add(full_path, arcname=arcname)
-    print(f"✔ Archive created at {BUNDLE_PATH}")
+        for fname in os.listdir(project_dir):
+            if fname in ("__pycache__", ".git") or fname.endswith(".log") or fname.endswith(".tar.gz"):
+                continue
+            full_p = os.path.join(project_dir, fname)
+            tar.add(full_p, arcname=fname)
+    print(f"✔ Flat Archive created at {BUNDLE_PATH}")
 
 
 def start_native_paramiko_tunnel(local_port, remote_host, remote_port, transport):
@@ -51,7 +59,7 @@ def start_native_paramiko_tunnel(local_port, remote_host, remote_port, transport
     def handler(client_sock):
         try:
             chan = transport.open_channel("direct-tcpip", (remote_host, remote_port), client_sock.getpeername())
-        except Exception:
+        except Exception as e:
             client_sock.close()
             return
 
@@ -89,10 +97,10 @@ def start_native_paramiko_tunnel(local_port, remote_host, remote_port, transport
 
 def deploy_to_container(container, password):
     ssh_port = container["ssh_port"]
-    worker_port = container["worker_port"]
+    local_port = container["local_port"]
     name = container["name"]
     
-    print(f"\n[+] Connecting to {name} on {SSH_HOST}:{ssh_port} (Worker Port: {worker_port})...")
+    print(f"\n[+] Connecting to {name} on {SSH_HOST}:{ssh_port}...")
     
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -104,34 +112,41 @@ def deploy_to_container(container, password):
         print(f"❌ SSH Connection failed to {name}: {e}")
         return False
 
-    # 1. SFTP Upload Bundle
+    # 1. SFTP Upload Bundle directly to home
     try:
         sftp = client.open_sftp()
-        sftp.put(BUNDLE_PATH, "/tmp/smart_pond_bundle.tar.gz")
+        sftp.put(BUNDLE_PATH, "/home/student/smart_pond_bundle.tar.gz")
         sftp.close()
-        print(f"  └─ Uploaded project code bundle to {name}")
+        print(f"  └─ Uploaded flat project archive to {name}")
     except Exception as e:
         print(f"❌ SFTP Upload failed to {name}: {e}")
         return False
 
-    # 2. Extract bundle & launch web_app worker on UNIQUE worker port (5001, 5002, 5003, 5004)
-    commands = [
-        "mkdir -p ~/smart_pond_detection",
-        "tar -xzf /tmp/smart_pond_bundle.tar.gz -C ~/smart_pond_detection/",
-        "pkill -9 -f 'python3 web_app.py' 2>/dev/null || true",
-        "cd ~/smart_pond_detection && (python3 -m pip install --user flask numpy requests 2>/dev/null || true)",
-        f"cd ~/smart_pond_detection && PORT={worker_port} nohup python3 web_app.py > worker_{worker_port}.log 2>&1 &"
-    ]
+    # 2. Extract bundle directly into ~/smart_pond_detection and start worker
+    remote_shell = """
+    pkill -9 -f 'web_app.py' >/dev/null 2>&1 || true
+    rm -rf /home/student/smart_pond_detection
+    mkdir -p /home/student/smart_pond_detection
+    tar -xzf /home/student/smart_pond_bundle.tar.gz -C /home/student/smart_pond_detection/
+    cd /home/student/smart_pond_detection
+    python3 -m pip install --user flask numpy requests >/dev/null 2>&1 || true
+    PORT=5000 nohup python3 /home/student/smart_pond_detection/web_app.py > /home/student/smart_pond_detection/worker.log 2>&1 &
+    """
     
-    stdin, stdout, stderr = client.exec_command(" && ".join(commands))
+    stdin, stdout, stderr = client.exec_command(remote_shell)
     stdout.channel.recv_exit_status()
-    time.sleep(1.5)
+    time.sleep(2.5)
 
-    # 3. Establish Native Paramiko Port Forwarding Tunnel to UNIQUE worker port
+    # 3. Read worker.log from container to verify startup status
+    stdin, stdout, stderr = client.exec_command("cat /home/student/smart_pond_detection/worker.log 2>&1 | tail -n 10")
+    log_output = stdout.read().decode("utf-8", errors="ignore").strip()
+    print(f"  └─ Container Log Output:\n{log_output if log_output else '(Starting process...)'}")
+
+    # 4. Establish Native Paramiko Port Forwarding Tunnel: Local Port -> Remote Container Port 5000
     transport = client.get_transport()
-    start_native_paramiko_tunnel(worker_port, "127.0.0.1", worker_port, transport)
+    start_native_paramiko_tunnel(local_port, "127.0.0.1", 5000, transport)
     
-    print(f"✔ Worker & Tunnel Active: http://127.0.0.1:{worker_port} -> {name}")
+    print(f"✔ Worker & Tunnel Active: http://127.0.0.1:{local_port} -> {name} (Port 5000)")
     return True
 
 
@@ -139,6 +154,8 @@ def main():
     print("======================================================================")
     print("🚀 Native Paramiko 4-Node SSH Cluster Deployer")
     print("======================================================================")
+    
+    clear_local_ports()
     
     password = getpass.getpass(prompt="Enter SSH password for student@10.1.75.51: ")
     
