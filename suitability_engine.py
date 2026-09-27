@@ -415,11 +415,12 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
     endpoints = [
         "https://overpass-api.de/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
         "https://overpass.nchc.org.tw/api/interpreter"
     ]
     headers = {"User-Agent": "SmartPondDetection/2.0 (Hydrological GIS Engine)"}
     query = f"""
-    [out:json][timeout:5];
+    [out:json][timeout:8];
     (
       nwr["natural"="water"]({min_lat},{min_lon},{max_lat},{max_lon});
       nwr["water"]({min_lat},{min_lon},{max_lat},{max_lon});
@@ -432,7 +433,7 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
 
     for ep in endpoints:
         try:
-            resp = requests.post(ep, data={"data": query}, headers=headers, timeout=4)
+            resp = requests.post(ep, data={"data": query}, headers=headers, timeout=5)
             if resp.status_code == 200:
                 elements = resp.json().get("elements", [])
                 if elements:
@@ -452,17 +453,34 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
                             w_types.add(tags["landuse"].lower())
 
                     name_str = f" ('{names[0]}')" if names else ""
-                    
-                    # Classification: River vs Pond/Lake/Reservoir
-                    is_river = any(t in w_types for t in ["river", "stream", "canal", "drain", "ditch"])
-                    is_pond  = any(t in w_types for t in ["pond", "lake", "reservoir", "water", "basin"]) or not is_river
 
-                    if is_river:
-                        verdict_title = f"RIVER ALREADY AVAILABLE HERE{name_str.upper()}"
-                        feature_type = "River / Stream / Canal"
-                    else:
+                    # Calculate aspect ratio (length vs width) of bounding box
+                    lat_span = (max_lat - min_lat) * 111_000
+                    lon_span = (max_lon - min_lon) * 111_000 * math.cos(math.radians((min_lat + max_lat) / 2))
+                    aspect_ratio = max(lat_span, lon_span) / (min(lat_span, lon_span) + 1e-5)
+
+                    pond_keywords = {"pond", "lake", "reservoir", "basin", "water"}
+                    river_keywords = {"river", "stream", "nala", "canal", "drain", "ditch"}
+
+                    has_pond_tag = any(t in w_types for t in pond_keywords)
+                    has_river_tag = any(t in w_types for t in river_keywords)
+
+                    # Decision Tree Priority:
+                    # 1. Standing water body (Pond/Lake/Reservoir) takes priority over minor canal feeder
+                    if has_pond_tag or (not has_river_tag and aspect_ratio < 2.5):
+                        is_pond = True
+                        is_river = False
                         verdict_title = f"POND ALREADY AVAILABLE HERE{name_str.upper()}"
                         feature_type = "Pond / Reservoir / Lake"
+                        message = f"An existing Pond / Lake / Reservoir{name_str} is already available at this drawn location."
+                        recommendation = f"Constructing a new excavated pond is not required. You can desilt, deepen, or renovate the existing {feature_type.lower()} for enhanced storage capacity."
+                    else:
+                        is_pond = False
+                        is_river = True
+                        verdict_title = f"RIVER / NALA ALREADY AVAILABLE HERE{name_str.upper()}"
+                        feature_type = "River / Nala / Stream Channel"
+                        message = f"An existing River / Nala / Stream channel{name_str} is already available at this drawn location."
+                        recommendation = "Constructing a new excavated pond inside an active river or nala corridor is not recommended. Consider building a check dam or bund along the bank instead."
 
                     return {
                         "exists": True,
@@ -472,30 +490,27 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
                         "waterbody_type": feature_type,
                         "name": names[0] if names else None,
                         "title": verdict_title,
-                        "message": f"An existing {feature_type}{name_str} is already available in this selected area.",
-                        "recommendation": f"Constructing a new excavated pond is not required. You can desilt, deepen, or renovate the existing {feature_type.lower()} for enhanced storage capacity."
+                        "message": message,
+                        "recommendation": recommendation
                     }
         except Exception as e:
             print(f"[Overpass endpoint {ep} check failed: {e}]")
 
-    # Fallback Spatial & Geometric Water Feature Heuristic
-    # Calculate aspect ratio (length vs width) of bounding box
+    # Fallback Spatial & Geometric Water Feature Heuristic (when offline/timeout)
     lat_span = (max_lat - min_lat) * 111_000
     lon_span = (max_lon - min_lon) * 111_000 * math.cos(math.radians((min_lat + max_lat) / 2))
     aspect_ratio = max(lat_span, lon_span) / (min(lat_span, lon_span) + 1e-5)
 
-    # If shape is elongated (aspect ratio > 3.5), it's characteristic of a river channel
-    # If aspect ratio <= 3.5 and area is compact, check if user specifically target-drew a water body
-    if aspect_ratio > 3.5:
+    if aspect_ratio > 2.5:
         return {
             "exists": True,
             "is_river": True,
             "is_pond": False,
-            "verdict_title": "RIVER / STREAM CHANNEL ALREADY AVAILABLE HERE",
-            "waterbody_type": "River / Stream",
+            "verdict_title": "RIVER / NALA CHANNEL ALREADY AVAILABLE HERE",
+            "waterbody_type": "River / Nala / Stream Channel",
             "name": None,
-            "title": "RIVER / STREAM CHANNEL ALREADY AVAILABLE HERE",
-            "message": "An existing river / stream channel was identified in this drawn area.",
+            "title": "RIVER / NALA CHANNEL ALREADY AVAILABLE HERE",
+            "message": "An existing river / nala / stream channel was identified in this drawn area.",
             "recommendation": "Constructing a new excavated pond inside a river corridor is not recommended. Consider building a check dam or bund along the bank instead."
         }
 
