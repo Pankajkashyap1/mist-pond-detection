@@ -1,6 +1,23 @@
+%%
+%% CSD Assignment 1 - Final Technical Report Template
+%% Based on the ACM "acmart" manuscript (single-column) style.
+%% Fill in every section marked [FILL IN]. Delete the guidance
+%% text (in italics) once you have written your own content.
+%%
 \documentclass[manuscript,screen,review]{acmart}
+
 \AtBeginDocument{%
   \providecommand\BibTeX{{Bib\TeX}}}
+
+%% ------------------------------------------------------------------
+%% This is a COURSE ASSIGNMENT report, not an ACM publication, so the
+%% rights-management / DOI / ISBN block from the original ACM sample
+%% is not required. It is left commented out below in case your
+%% instructor asks you to keep the ACM-style header block.
+%% ------------------------------------------------------------------
+% \setcopyright{acmlicensed}
+% \acmConference[CSD Assignment 1]{Course: Computer Science and Design}{2026}{Your Institute}
+% \acmISBN{}
 
 \begin{document}
 
@@ -14,6 +31,9 @@
   \city{Bhilai}
   \country{India}}
 \email{pankaj@institute.ac.in}
+
+%% Add more \author{} + \affiliation{} + \email{} blocks here if this
+%% is a group project. Keep one block per team member.
 
 \renewcommand{\shortauthors}{Kashyap et al.}
 
@@ -40,26 +60,25 @@ The system estimates upstream catchment boundaries, terrain slope, elevation dep
 %% =====================================================================
 \section{Problem Statement and Requirements}
 \label{sec:requirements}
-
 The assignment requirements are mapped to their implementing codebase modules in Table~\ref{tab:requirements}.
 
 \begin{table}[h]
-\caption{Functional requirements and where they are implemented}
-\label{tab:requirements}
-\begin{tabular}{p{5.5cm}p{7.5cm}}
-\toprule
-Requirement & Implemented in \\
-\midrule
-Satellite imagery display & \texttt{static/app.js} (Esri WorldImagery / Leaflet layers) \\
-Contour map visualization & \texttt{contour\_engine.py} / \texttt{web\_app.py} (\texttt{/api/map\_contours}) \\
-Available-land identification & \texttt{suitability\_engine.py} (\texttt{check\_existing\_waterbody}) \\
-Catchment area estimation & \texttt{contour\_engine.py} (\texttt{ContourAnalysisEngine}) \\
-Historical rainfall query & \texttt{hydrology\_engine.py} (\texttt{HydrologyEngine} Open-Meteo API) \\
-Runoff volume estimation & \texttt{hydrology\_engine.py} (Rational Method $V = C \cdot R \cdot A$) \\
-Pond depth / storage recommendation & \texttt{suitability\_engine.py} (\texttt{recommend\_pond\_specs}) \\
-Combined overlay / results view & \texttt{static/app.js} (\texttt{renderCatchmentLayers}, \texttt{renderResults}) \\
-\bottomrule
-\end{tabular}
+  \caption{Functional requirements and where they are implemented}
+  \label{tab:requirements}
+  \begin{tabular}{p{5.5cm}p{7.5cm}}
+    \toprule
+    Requirement & Implemented in \\
+    \midrule
+    Satellite imagery display & \texttt{static/app.js} (Esri WorldImagery / Leaflet layers) \\
+    Contour map visualization & \texttt{contour\_engine.py} / \texttt{web\_app.py} (\texttt{/api/map\_contours}) \\
+    Available-land identification & \texttt{suitability\_engine.py} (\texttt{check\_existing\_waterbody}) \\
+    Catchment area estimation & \texttt{contour\_engine.py} (\texttt{ContourAnalysisEngine}) \\
+    Historical rainfall query & \texttt{hydrology\_engine.py} (\texttt{HydrologyEngine} Open-Meteo API) \\
+    Runoff volume estimation & \texttt{hydrology\_engine.py} (Rational Method $V = C \cdot R \cdot A$) \\
+    Pond depth / storage recommendation & \texttt{suitability\_engine.py} (\texttt{recommend\_pond\_specs}) \\
+    Combined overlay / results view & \texttt{static/app.js} (\texttt{renderCatchmentLayers}, \texttt{renderResults}) \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 \subsection{Non-Functional Requirements}
@@ -68,14 +87,14 @@ The platform achieves query response times under 800\,ms, supports up to 200 con
 %% =====================================================================
 \section{System Architecture and High-Level Design}
 \label{sec:architecture}
-The application uses a stateless client-server cluster architecture. The Leaflet.js map frontend communicates with a central Flask Load Balancer Gateway, which routes requests to 4 containerized backend worker nodes via round-robin distribution.
+The application uses a stateless client-server cluster architecture. The Leaflet.js map frontend communicates with a central Flask Load Balancer Gateway, which routes requests to 4 containerized backend worker nodes via round-robin distribution. Data flows from map interaction to backend elevation and rainfall REST APIs, then streams back as GeoJSON overlays and analytical metrics.
 
 \begin{figure}[h]
-\centering
-\includegraphics[width=0.85\linewidth]{sample_data/fig1_contour_lines.png}
-\caption{High-level system architecture showing real-time contour line GIS rendering on the map canvas.}
-\label{fig:architecture}
-\Description{Architecture diagram and contour line map overlay.}
+  \centering
+  \includegraphics[width=0.88\linewidth]{sample_data/fig1_contour_lines.png}
+  \caption{High-level system architecture showing real-time contour line GIS rendering on the map canvas.}
+  \label{fig:architecture}
+  \Description{High-level system architecture showing real-time contour line GIS rendering on the map canvas.}
 \end{figure}
 
 \subsection{Technology Stack}
@@ -89,6 +108,7 @@ The application uses a stateless client-server cluster architecture. The Leaflet
 %% =====================================================================
 \section{Methodology}
 \label{sec:methodology}
+This section explains the actual algorithms and data pipelines implemented for terrain elevation processing, flow routing, catchment boundary extraction, and rainfall runoff estimation.
 
 \subsection{Terrain and Elevation Analysis}
 Elevation grids ($N \times N$) are interpolated from API queries or uploaded 3D KML contour point clouds using 2D SciPy griddata linear interpolation with Inverse Distance Weighting (IDW) fallback:
@@ -100,7 +120,7 @@ Z(x,y) = \frac{\sum_{k=1}^K w_k Z_k}{\sum_{k=1}^K w_k}, \quad w_k = \frac{1}{d_k
 Upstream catchment boundaries are calculated using the D8 (Deterministic Eight-Neighbor) single-flow direction model. For each cell, flow points to the neighbor with the steepest downward slope. Watershed delineation executes a reverse D8 Breadth-First Search (BFS) graph traversal.
 
 \subsection{Rainfall Data Integration}
-Historical rainfall is fetched from Open-Meteo's Archive API. Annual runoff volume $V_{runoff}$ ($\text{m}^3$) is computed via the Rational Method:
+Historical rainfall is fetched from Open-Meteo's Archive API for the geographical coordinates. Annual runoff volume $V_{runoff}$ ($\text{m}^3$) is computed via the Rational Method:
 \begin{equation}
 V_{runoff} = C \times \left(\frac{P_{annual}}{1000}\right) \times A_{catchment}
 \end{equation}
@@ -111,17 +131,25 @@ where $C = 0.30$ represents semi-arid rural soil runoff coefficient.
 \label{sec:implementation}
 
 \subsection{Backend and API Design}
-The server exposes REST endpoints: \texttt{POST /api/analyze\_polygon} (polygon site analysis), \texttt{POST /analyzeContour} (KML/KMZ contour catchment delineation), \texttt{POST /api/map\_contours} (viewport contour lines), \texttt{GET /api/geocode}, and \texttt{GET /cluster/status}.
+The server exposes REST endpoints: \texttt{POST /api/analyze\_polygon} (polygon site analysis), \texttt{POST /analyzeContour} (KML/KMZ contour catchment delineation), \texttt{POST /api/map\_contours} (viewport contour lines), \texttt{GET /api/geocode}, and \texttt{GET /cluster/status}. Third-party API errors are handled gracefully with fallback elevation providers.
 
 \subsection{Frontend and Visualization}
 The web interface features interactive Leaflet drawing controls and a dynamic drag-to-resize map height bar. Results render color-coded overlays: green box (\#00e676) for recommended pond excavation, cyan polygon (\#00e5ff) for catchment boundary, and blue lines (\#29b6f6) for stream flow.
 
 \begin{figure}[h]
-\centering
-\includegraphics[width=0.85\linewidth]{sample_data/fig3_kml_contour_analysis.png}
-\caption{Application interface showing the 1m KML contour results overlay and recommended pond popup specs.}
-\label{fig:ui}
-\Description{Application UI showing results overlay, catchment boundary, and recommended depth.}
+  \centering
+  \includegraphics[width=0.88\linewidth]{sample_data/fig3_kml_contour_analysis.png}
+  \caption{Application interface showing the 1m KML contour results overlay and recommended pond popup specs.}
+  \label{fig:ui}
+  \Description{Application UI showing results overlay, catchment boundary, and recommended depth.}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.88\linewidth]{sample_data/fig2_elevation_dots.png}
+  \caption{Uniform grid sampling of elevation heat-dots indicating regional terrain gradient and height variation.}
+  \label{fig:dots}
+  \Description{Elevation heat dots grid visualization across visible map area.}
 \end{figure}
 
 \subsection{Database and Storage}
@@ -131,30 +159,30 @@ Calculations are executed stateless in memory. Analytical metrics, GeoJSON layer
 \section{CSD Themes and Topics Applied in the Project}
 \label{sec:csd-themes}
 
-Table~\ref{tab:csd-themes} details the mapping of core CSD themes to project implementations.
+Table~\ref{tab:csd-themes} maps core CSD engineering concepts directly to their specific project implementations.
 
 \begin{table*}[t]
-\caption{Mapping of core CSD themes/topics to their use in this project}
-\label{tab:csd-themes}
-\begin{tabular}{p{3.2cm}p{5.0cm}p{6.5cm}}
-\toprule
-CSD Theme/Topic & Where used in the project & Justification / design rationale \\
-\midrule
-API Design (REST) & \texttt{/api/analyze\_polygon}, \texttt{/analyzeContour} & JSON contracts separating GIS calculations from map UI rendering. \\
-Load Balancing & \texttt{cluster\_load\_balancer.py} & Round-robin load balancer across 4 SSH worker nodes for concurrency. \\
-Caching & \texttt{suitability\_engine.py} & In-memory elevation tile cache reducing external API latency. \\
-Database Indexing & Memory Spatial Grids & Spatial grid indexing for $\mathcal{O}(1)$ elevation lookup during D8 routing. \\
-Concurrency & \texttt{deploy\_ssh\_cluster.py} & Asynchronous multi-threading for non-blocking SSH tunnel management. \\
-Microservices vs. Monolith & Hybrid Stateless Architecture & Modular worker architecture allowing horizontal scaling across nodes. \\
-Design Patterns & Strategy \& Factory Patterns & Modular strategy for runoff models and spatial grid interpolation. \\
-Containerization / Deployment & SSH Container Deployment & Isolated execution across ports 2257--2260 for repeatable environments. \\
-Error Handling and Resilience & Elevation \& Geocode Fallbacks & Fallback endpoints prevent single-point failures during spatial queries. \\
-Algorithms and Complexity & D8 Flow Accumulation $\mathcal{O}(N \log N)$ & Sorting elevation grid before D8 propagation ensures linear time routing. \\
-Testing Strategy & \texttt{test\_api\_execution.py} & Automated unit and integration test suite verifying spatial math. \\
-Version Control / CI-CD & GitHub Repository (\texttt{main} branch) & Version-controlled codebase enabling remote SSH pulls. \\
-\bottomrule
-\end{tabular}
-\end{table>
+  \caption{Mapping of core CSD themes/topics to their use in this project}
+  \label{tab:csd-themes}
+  \begin{tabular}{p{3.2cm}p{4.8cm}p{6.5cm}}
+    \toprule
+    CSD Theme/Topic & Where used in the project & Justification / design rationale \\
+    \midrule
+    API Design (REST) & \texttt{/api/analyze\_polygon}, \texttt{/analyzeContour} & Clean JSON contracts separating GIS calculation from UI rendering. \\
+    Load Balancing & \texttt{cluster\_load\_balancer.py} & Round-robin gateway across 4 SSH worker nodes to sustain high concurrency. \\
+    Caching & \texttt{suitability\_engine.py} & In-memory elevation tile cache reducing external API network latency. \\
+    Database Indexing & Memory Spatial Grids & Spatial grid indexing for $\mathcal{O}(1)$ elevation lookup during D8 routing. \\
+    Concurrency & \texttt{deploy\_ssh\_cluster.py} & Asynchronous multi-threading for non-blocking SSH tunnel management. \\
+    Microservices vs. Monolith & Hybrid Stateless Architecture & Modular worker architecture allowing horizontal scaling across nodes. \\
+    Design Patterns & Strategy \& Factory Patterns & Modular strategy for runoff models and spatial grid interpolation. \\
+    Containerization / Deployment & SSH Container Deployment & Isolated execution across ports 2257--2260 for repeatable environments. \\
+    Error Handling and Resilience & Elevation \& Geocode Fallbacks & Fallback endpoints prevent single-point failures during spatial queries. \\
+    Algorithms and Complexity & D8 Flow Accumulation $\mathcal{O}(N \log N)$ & Sorting elevation grid before D8 propagation ensures linear time routing. \\
+    Testing Strategy & \texttt{test\_api\_execution.py} & Automated unit and integration test suite verifying spatial math. \\
+    Version Control / CI-CD & GitHub Repository (\texttt{main} branch) & Version-controlled codebase enabling remote SSH pulls. \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
 
 We implemented a custom round-robin load balancer in front of 4 backend worker nodes because spatial D8 catchment algorithms are CPU-intensive; distributing requests prevents server bottlenecks under burst traffic. We chose a stateless architecture over complex microservices to ensure simple horizontal scaling across SSH container instances.
 
@@ -164,11 +192,11 @@ We implemented a custom round-robin load balancer in front of 4 backend worker n
 Evaluation on a candidate rural site ($A_{drawn} = 138,256\,\text{m}^2$, $P_{annual} = 1,100\,\text{mm}$) produced: Catchment Area = $138,256\,\text{m}^2$, Recommended Depth = $4.0\,\text{m}$, Net Storage Volume = $95,051.37\,\text{m}^3$, Irrigation Potential = $19.01$\,ha, and Suitability Score = $66.6/100$.
 
 \begin{figure}[h]
-\centering
-\includegraphics[width=0.85\linewidth]{sample_data/fig4_drawn_pond_analysis.png}
-\caption{Example results overlay for a selected site (IIT Bhilai region) showing Suitability Score (66.6/100), net storage volume (95,051.37\,m$^3$), and recommended depth (4\,m).}
-\label{fig:results}
-\Description{Results overlay for user-drawn site analysis.}
+  \centering
+  \includegraphics[width=0.88\linewidth]{sample_data/fig4_drawn_pond_analysis.png}
+  \caption{Example results overlay for a selected site (IIT Bhilai region) showing Suitability Score (66.6/100), net storage volume (95,051.37\,m$^3$), and recommended depth (4\,m).}
+  \label{fig:results}
+  \Description{Example results overlay for a selected site showing Suitability Score and net storage volume.}
 \end{figure}
 
 \subsection{Performance}
@@ -182,13 +210,14 @@ The platform provides rapid, automated hydro-geological decision support. Limita
 %% =====================================================================
 \section{AI Tool Usage Declaration}
 \label{sec:ai-usage}
-In accordance with the assignment's LLM Usage Policy, Google DeepMind Antigravity AI pair programmer was utilized for debugging spatial algorithms, refactoring backend endpoints, automating cluster SSH deployment scripts, and formatting LaTeX technical documentation matching the Overleaf template. All generated code and equations were reviewed, verified, and tested by the team.
+In accordance with the assignment's LLM Usage Policy, Google DeepMind Antigravity AI pair programmer was utilized for debugging spatial algorithms, refactoring backend endpoints, automating cluster SSH deployment scripts, and formatting LaTeX technical documentation matching this template. All generated code and equations were reviewed, verified, and modified by the team before submission.
 
 %% =====================================================================
 \appendix
+
 \section{Source Code and Repository}
 \label{sec:appendix}
-
+The codebase is hosted on GitHub with an automated deployment pipeline:
 \begin{itemize}
     \item \textbf{GitHub Repository URL:} \url{https://github.com/Pankajkashyap1/mist-pond-detection}
     \item \textbf{Live Working Front-end URL:} \url{https://c8acfb86e8f596.lhr.life} (or \url{http://localhost:5000})
