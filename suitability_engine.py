@@ -436,31 +436,51 @@ def check_existing_waterbody(polygon_coords: List[List[float]]) -> Dict[str, Any
                     if "name" in tags:
                         names.append(tags["name"])
                     if "waterway" in tags:
-                        w_types.add(tags["waterway"].capitalize())
+                        w_types.add(tags["waterway"].lower())
                     elif "water" in tags:
-                        w_types.add(tags["water"].capitalize())
+                        w_types.add(tags["water"].lower())
                     elif "natural" in tags:
-                        w_types.add(tags["natural"].capitalize())
+                        w_types.add(tags["natural"].lower())
 
-                w_type_str = "/".join(w_types) if w_types else "Water Body / River"
                 name_str = f" ('{names[0]}')" if names else ""
                 
+                # Classification: River vs Pond/Lake
+                is_river = any(t in w_types for t in ["river", "stream", "canal", "drain", "ditch"])
+                is_pond  = any(t in w_types for t in ["pond", "lake", "reservoir", "water", "basin"])
+
+                if is_river:
+                    verdict_title = f"RIVER ALREADY AVAILABLE HERE{name_str.upper()}"
+                    feature_type = "River / Stream"
+                elif is_pond:
+                    verdict_title = f"POND ALREADY AVAILABLE HERE{name_str.upper()}"
+                    feature_type = "Pond / Lake"
+                else:
+                    verdict_title = f"EXISTING WATER BODY AVAILABLE{name_str.upper()}"
+                    feature_type = "Water Body"
+
                 return {
                     "exists": True,
-                    "waterbody_type": w_type_str,
+                    "is_river": is_river,
+                    "is_pond": is_pond,
+                    "verdict_title": verdict_title,
+                    "waterbody_type": feature_type,
                     "name": names[0] if names else None,
-                    "title": f"⚠️ Existing {w_type_str}{name_str} Detected!",
-                    "message": f"An existing {w_type_str.lower()}{name_str} is already present in this selected area.",
-                    "recommendation": f"Instead of excavating a new pond, consider desilting, deepening, or upgrading the existing {w_type_str.lower()} for enhanced catchment storage."
+                    "title": verdict_title,
+                    "message": f"A {feature_type}{name_str} is already available at this drawn location.",
+                    "recommendation": f"Constructing a new pond is not required. You can desilt, deepen, or renovate the existing {feature_type.lower()} instead for better water retention."
                 }
     except Exception as e:
         print(f"[Overpass Waterbody Check: {e}]")
 
     return {
         "exists": False,
+        "is_river": False,
+        "is_pond": False,
+        "verdict_title": None,
         "waterbody_type": None,
         "title": "No Existing Water Body",
         "message": "Area is clear of existing rivers or ponds.",
         "recommendation": "Location is open for new pond excavation."
     }
+
 

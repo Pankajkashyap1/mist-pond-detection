@@ -73,6 +73,15 @@ def analyze_polygon():
             annual_rainfall_mm=rainfall_mm,
         )
 
+        # ── Override verdict if an existing river / pond / lake is present
+        if existing_waterbody.get("exists"):
+            suitability["verdict"] = existing_waterbody["verdict_title"]
+            suitability["verdict_color"] = "orange"
+            suitability["verdict_icon"] = "🌊" if existing_waterbody.get("is_river") else "💧"
+            msg = f"⚠️ {existing_waterbody['message']} {existing_waterbody['recommendation']}"
+            if msg not in suitability["reasons"]:
+                suitability["reasons"].insert(0, msg)
+
         # ── Step 4: Pond Specs (only if suitable)
         specs = None
         if suitability["is_suitable"]:
