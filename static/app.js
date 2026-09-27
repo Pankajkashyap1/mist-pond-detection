@@ -253,6 +253,8 @@ async function runAnalysis() {
 }
 
 // ── RENDER RESULTS ────────────────────────────────────────────────────────
+let currentPondMarker = null;
+
 function renderResults(data) {
     const { geometry, elevation_stats, suitability, pond_specs, elevation_heatmap, elevation_grid, existing_waterbody } = data;
 
@@ -272,11 +274,58 @@ function renderResults(data) {
     renderElevationHeatmap(elevation_heatmap, elevation_stats);
     renderContourLines(elevation_grid);
 
+    // Render Recommended Pond Pin Marker & Auto-open Popup
+    renderPondLocationMarkerAndPopup(data);
+
     // Show map control bar
     DOM.mapControls.style.display = 'flex';
 
     // Activate first tab
     switchTab('reasons');
+}
+
+function renderPondLocationMarkerAndPopup(data) {
+    const { geometry, elevation_stats, suitability, pond_specs } = data;
+
+    if (currentPondMarker) {
+        map.removeLayer(currentPondMarker);
+        currentPondMarker = null;
+    }
+
+    const lat = geometry.center_lat;
+    const lon = geometry.center_lon;
+    const elev = elevation_stats.mean_m;
+    const slope = elevation_stats.avg_slope_deg;
+    const depth = pond_specs ? pond_specs.recommended_depth_m : 2.5;
+    const volume = pond_specs ? pond_specs.net_usable_volume_m3.toLocaleString() : Math.round(geometry.surface_area_sqm * 1.5).toLocaleString();
+    const score = suitability.suitability_score;
+
+    const popupContent = `
+        <div class="pond-recommendation-popup" style="font-family: 'Inter', system-ui, sans-serif; padding: 2px;">
+            <div style="font-weight: 700; font-size: 14px; color: #0288d1; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                <span>💧</span> Recommended Pond Location
+            </div>
+            <div style="font-size: 12.5px; color: #2d3748; line-height: 1.6;">
+                <div><strong>Lat/Lon:</strong> ${lat}°, ${lon}°</div>
+                <div><strong>Elevation:</strong> ${elev} m ASL</div>
+                <div><strong>Terrain Slope:</strong> ${slope}°</div>
+                <div><strong>Recommended Depth:</strong> ${depth} m</div>
+                <div><strong>Storage Capacity:</strong> ${volume} m³</div>
+                <div><strong>Suitability Score:</strong> ${score}/100</div>
+            </div>
+        </div>
+    `;
+
+    currentPondMarker = L.marker([lat, lon], {
+        title: "Recommended Pond Location"
+    }).addTo(map);
+
+    currentPondMarker.bindPopup(popupContent, {
+        closeButton: true,
+        autoClose: false,
+        closeOnClick: false,
+        className: 'custom-pond-popup'
+    }).openPopup();
 }
 
 function renderWaterbodyBanner(wb) {

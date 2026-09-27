@@ -422,3 +422,19 @@ small { font-size: 10px; color: var(--text-3); display: block; margin-top: 3px; 
 }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ── Custom Pond Location Recommendation Popup ── */
+.custom-pond-popup .leaflet-popup-content-wrapper {
+    background: #ffffff;
+    color: #1a202c;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+    padding: 4px 6px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.custom-pond-popup .leaflet-popup-tip {
+    background: #ffffff;
+}
+.custom-pond-popup .leaflet-popup-content {
+    margin: 8px 12px;
+}
+
